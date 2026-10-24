@@ -1,0 +1,9 @@
+/target
+
+# Real clippings, books and archives never belong in this public repo.
+My Clippings.txt
+*.epub
+!/tests/fixtures/**/*.epub
+metadata.db
+
+.DS_Store
