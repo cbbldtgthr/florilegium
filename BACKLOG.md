@@ -43,36 +43,6 @@ its file index and starting line number.
   `kindle.raw_added_on`.
 - File order, not the parsed date, is authoritative for recency.
 
-### Frozen normaliser `norm_v1`
-Per-character normalisation used for identity hashing and, later, for locating
-text in EPUBs. One folding table, two entry points: plain string, and a variant
-that maps each output character back to a raw offset (NFKC can expand one char
-into several).
-1. NFKC per character.
-2. Fold `‘ ’ ‚ ‛` → `'`, `“ ” „ ‟` → `"`, `– — ‒ ―` → `-`, `…` → `...`,
-   non-breaking and other Unicode spaces → space.
-3. Remove U+00AD, U+200B, U+200C, U+200D, U+2060, U+FEFF.
-4. Collapse whitespace runs to one space; trim.
-5. Preserve case.
-Golden-vector tests pin outputs. Never edit v1; a change means a new `norm_v2`
-behind an explicit flag.
-
-### IDs
-IDs use **calibre's annotation ID format**: 22 characters, unpadded base64url
-of 16 bytes (calibre's own look like `fKd3pEbfnZCfyfLQw_qeTA`). One shape
-across the archive, and minted IDs are indistinguishable from viewer-made ones.
-- Kindle-originated: `base64url(uuid5(NAMESPACE, s).bytes)` where `s` joins
-  with `\x1f`: `"v1"`, type (`highlight`|`note`), title key, author key,
-  `norm_v1(text)` (the note body for notes), position token (`L<start>-<end>`
-  if a location exists, else `P<page>`, else empty), trimmed `raw_added_on`.
-- Title/author keys: BOM-stripped, casefolded, whitespace-collapsed. Not fuzzy.
-- `NAMESPACE` is a constant UUID defined once and never changed.
-- Never hashed: CFIs, calibre book IDs, anything from a calibre match, parsed or
-  converted dates.
-- calibre-originated entries use calibre's own ID unchanged.
-- Golden-vector tests pin inputs to IDs, and assert excluded inputs have no
-  effect.
-
 ### Supersede replay (highlights)
 Kindle records an edit (extend, trim, redo) as a new appended entry. For
 overlapping highlights only the latest is kept. This logic exists **only**
@@ -87,7 +57,7 @@ overlaps it; the merged cluster takes content from the new highlight.
   boundary is enough to be compared. Page-only entries are candidates only
   within the same page.
 - *Confirmed* only by text: the longest common substring of the two
-  `norm_v1`, casefolded texts covers at least 50% of the shorter text **and**
+  `norm_v1`, lowercased texts covers at least 50% of the shorter text **and**
   is at least 20 characters. Both thresholds are config, tuned with fixtures.
 - Why: Kindle locations are ~150 characters, so adjacent separate highlights
   routinely share a boundary location (81 such pairs in the real file, almost
