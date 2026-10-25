@@ -55,6 +55,10 @@ check archive:
 resolve id archive *args:
     i="$1"; a="$2"; shift 2; cargo run --quiet -- resolve "$i" --archive "$a" "$@"
 
+# Dev-only: regenerate a real library's EPUB highlight CFIs from their text and compare with calibre's
+cfi-selfcheck library:
+    cargo run --quiet --release --example cfi_selfcheck -- "{{library}}"
+
 # Run annot-archive with the given arguments, e.g. `just run --help`
 run *args:
     cargo run --quiet -- {{args}}

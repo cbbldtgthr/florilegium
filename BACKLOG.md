@@ -33,18 +33,14 @@ would make two files claim one book: report the pair for `merge-books`
 instead. Only the EPUB format is used; a book without one is
 `reason: "no-epub"`.
 
-### Text locator
-Parse each spine document as **XML with the HTML named-entity table
-supplied** (XHTML files use `&nbsp;` and friends via their DTD). Verified on
-228 real highlights: an XML parse reproduces calibre's tree on all but an
-undeclared-entity case, while an HTML5 parse breaks on XHTML self-closing tags.
-A document that fails to parse is `unmatched`, `reason: "parse-error"`, never
-guessed. Build a normalised haystack per spine document with an index map back
-to (text node, UTF-16 offset), using `norm_v1`'s mapping variant. Find every
-occurrence of the normalised highlight text. One → `exact`. Several →
-disambiguate by Kindle location (below). None → bounded fuzzy search above a
-threshold → `approximate`, else `unmatched`, `reason: "text-not-found"`. A
-match spanning two spine documents is `unmatched`, `reason: "cross-spine"`.
+### Classify matches
+`cfi::Haystack` finds every occurrence of a highlight's `norm_v1` text in a
+spine document (a document that fails calibre's XML path is `unmatched`,
+`reason: "parse-error"`). Search the whole spine: one occurrence → `exact`;
+several → disambiguate by Kindle location (below); none → bounded fuzzy search
+above a threshold → `approximate`, else `unmatched`, `reason:
+"text-not-found"`. Text found only by joining two spine documents is
+`unmatched`, `reason: "cross-spine"`.
 
 ### Disambiguate by Kindle location
 Pass 1: entries with exactly one occurrence give (Kindle location, offset in
@@ -54,34 +50,16 @@ it beats the runner-up by a configured margin, else `ambiguous` with
 `candidates` listed and the best guess in the CFI fields. Too few points: fall
 back to `location / total_locations` (override, else the book's max location).
 
-### CFI generator, matching calibre's viewer encoder
-Rules taken from calibre's `src/pyj/read_book/cfi.pyj`:
-- Path from the document: `/2` is `<html>`, `/4` is `<body>`. Children are
-  indexed over the browser's `childNodes`: each element is an even step; any
-  run of non-element nodes (text, comment) shares the odd step before the next
-  element.
-- `[id]` assertion added when the element's id is unique in the document.
-- Text position: encode walks back over **all** preceding siblings, elements
-  included, so the last step names the parent's **first child** (`/1` when it
-  is text) and the offset sums the parent's direct text-node children up to the
-  target, skipping text inside sibling elements, in UTF-16 code units.
-  Verified: 92 real CFIs are `/1:N` yet land in a text node after an inline
-  element. CFIs from 2020-era calibre used a different rule and are only ever
-  stored, never generated.
-- A selection ending at a block boundary may be an element-only CFI (no
-  `:offset`); emit offsets always, but accept both when reading.
-- Fill `spine_name`, `spine_index` (verified equal to the OPF spine position),
-  `style` (configured default), `toc_family_titles` from the EPUB TOC where
-  feasible, `match`, `reason`, `candidates`, `derived_with` (tool version).
-- `derive-calibre --library PATH --archive DIR [--rederive] [--book …]`
-  touches only `calibre` blocks and `book.calibre_uuid`; never `native` or
-  `manual` entries.
-
-### CFI oracle (local, dev-only)
-A `calibre-debug` Python script (bundled interpreter, no dependencies) that
-parses with calibre's own pipeline and resolves CFIs the way the viewer does,
-used by a `just` recipe to check generated CFIs against a real local library.
-Never run in CI; its inputs and outputs stay out of the repo.
+### `derive-calibre`
+`derive-calibre --library PATH --archive DIR [--rederive] [--book …]` fills
+the `calibre` block of Kindle entries from `cfi::encode` (start and end of the
+match): `start_cfi`, `end_cfi`, `spine_name`, `spine_index`, `format: "EPUB"`,
+`book_id`, `style` (configured default), `toc_family_titles` from the EPUB TOC
+where feasible, `highlighted_text` (the entry's text), `match`, `reason`,
+`candidates`, `derived_with` (tool version). It touches only `calibre` blocks
+and `book.calibre_uuid`, and never `native` or `manual` entries. Generated
+CFIs are tight around the text: calibre's own selections sometimes take in an
+edge space, which is why its CFIs can differ by one.
 
 ### Synthetic EPUB and golden samples
 A small synthetic EPUB (repeated phrases, curly quotes, em dashes, nested

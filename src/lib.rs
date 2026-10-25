@@ -1,7 +1,9 @@
 pub mod archive;
 pub mod calibre;
+pub mod cfi;
 pub mod check;
 pub mod config;
+pub mod epub;
 pub mod id;
 pub mod ingest;
 pub mod kindle;
@@ -9,3 +11,4 @@ pub mod merge;
 pub mod merge_books;
 pub mod norm;
 pub mod resolve;
+pub mod xhtml;
