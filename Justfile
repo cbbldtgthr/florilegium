@@ -10,6 +10,10 @@ build:
 test:
     cargo test --workspace --all-targets
 
+# Run the tests that need calibre installed (they drive calibre-debug)
+test-calibre:
+    cargo test --workspace --all-targets -- --ignored
+
 # Lint with clippy, treating every warning as an error
 lint:
     cargo clippy --workspace --all-targets -- --deny warnings
@@ -45,6 +49,11 @@ ingest-calibre archive *args:
 [positional-arguments]
 derive-calibre archive *args:
     a="$1"; shift 1; cargo run --quiet --release -- derive-calibre --archive "$a" "$@"
+
+# Write highlights into calibre's EPUBs; needs `--calibre-closed` (or `--dry-run`), optionally `--include approximate,ambiguous`
+[positional-arguments]
+push-calibre archive *args:
+    a="$1"; shift 1; cargo run --quiet --release -- push-calibre --archive "$a" "$@"
 
 # Join two book files that are one book: KEEP gains ABSORB's entries; add `--dry-run` to only report
 [positional-arguments]

@@ -11,5 +11,6 @@ pub mod kindle;
 pub mod merge;
 pub mod merge_books;
 pub mod norm;
+pub mod push;
 pub mod resolve;
 pub mod xhtml;

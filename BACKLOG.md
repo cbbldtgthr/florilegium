@@ -35,39 +35,7 @@ the generator must reproduce.
 
 ---
 
-## M4: push to calibre
-
-### `push-calibre`
-`push-calibre --library PATH --archive DIR [--dry-run] [--include
-approximate,ambiguous]`.
-- Writes only EPUB annotations, from each entry's `calibre["EPUB"]` anchor,
-  whatever device or format the entry came from. Eligible by default: live
-  highlights whose EPUB anchor is `exact`, `manual` or `native`.
-  `approximate`/`ambiguous` need `--include`. Never `unmatched`, orphan notes,
-  tombstones, or entries without a `created` date (calibre needs one).
-- Build each annotation from the entry and its EPUB anchor: `uuid` = entry
-  ID, `timestamp` = `created`, `highlighted_text` = `text` (derived anchors do
-  not repeat it), `notes` = `note`, and the anchor's CFIs, spine fields and
-  `style`; drop the tool's own keys (`match`, `reason`, `candidates`,
-  `occurrences`, `similarity`, `derived_with`, `book_id`).
-- Mechanism: calibre's merge keeps the newer timestamp and, on a tie, the
-  existing annotation, so a plain merge cannot update text. Instead, read the
-  book/format's current viewer annotations, replace those whose `uuid` matches
-  an archive entry, keep every other annotation untouched, and write the full
-  list.
-- The write goes through a short Python script run by `calibre-debug`, calling
-  `set_annotations_for_book`, so calibre's own code handles its write
-  invariants (`annotations_dirtied`, FTS) for the installed version. Rust
-  passes it one JSON file.
-- Back up `metadata.db` (timestamped copy) before the first write in a run.
-  Refuse to write without a flag confirming calibre is closed (the GUI and
-  viewer hold their own state and rewrite a book's whole annotation list when
-  they save). `--dry-run` prints exactly what would change.
-- Push records its own effect: every entry it writes gains `calibre` in
-  `sources` in the same run, so reading it back changes nothing.
-- Acceptance: pushing twice is a no-op; push then `ingest-calibre` gives a
-  zero-byte archive diff; deleting calibre annotations and re-pushing restores
-  them with the same IDs.
+## Later: two-way edits
 
 ### Fields edited on both sides
 Each source overwrites the fields it supplies (last ingest wins). Once an
@@ -77,4 +45,6 @@ version back: two diff hunks every cycle, not a one-off review. Decide
 between: `locked_fields` on an entry (the archive keeps those fields; no
 source overwrites them), or overwriting a field only when that source's own
 copy changed since its last ingest (needs the last-seen value per source,
-e.g. in the source block).
+e.g. in the source block). The same applies to a pushed highlight's colour: a read-back of
+our own anchor keeps the archive's `style`, so re-colouring it in calibre is
+undone by the next push.

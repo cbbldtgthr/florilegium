@@ -38,6 +38,9 @@ pub struct CalibreConfig {
     pub disambiguation_ratio: Option<f64>,
     /// calibre builtin highlight colour for derived highlights, e.g. `yellow`.
     pub highlight_color: Option<String>,
+    /// `calibre-debug`, which runs push's writer inside calibre; defaults to
+    /// macOS's standard install, then the PATH.
+    pub debug_executable: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Default, Deserialize)]

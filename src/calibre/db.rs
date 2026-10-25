@@ -37,6 +37,9 @@ pub struct AnnotationRow {
     pub annot_id: String,
     /// `annot_data` parsed, or the parse error.
     pub data: Result<Value, String>,
+    /// The row's `timestamp` column: seconds since the epoch, as calibre
+    /// stores it beside the JSON.
+    pub timestamp: f64,
 }
 
 pub struct Library {
@@ -142,7 +145,7 @@ impl Library {
         let q = |e: rusqlite::Error| format!("cannot read calibre annotations: {e}");
         let mut stmt = self
             .conn
-            .prepare("SELECT id, book, format, user_type, user, annot_type, annot_id, annot_data FROM annotations ORDER BY id")
+            .prepare("SELECT id, book, format, user_type, user, annot_type, annot_id, annot_data, timestamp FROM annotations ORDER BY id")
             .map_err(q)?;
         let rows = stmt
             .query_map([], |r| {
@@ -156,6 +159,7 @@ impl Library {
                     annot_type: r.get(5)?,
                     annot_id: r.get(6)?,
                     data: serde_json::from_str(&data).map_err(|e| e.to_string()),
+                    timestamp: r.get(8)?,
                 })
             })
             .map_err(q)?;

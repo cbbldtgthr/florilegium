@@ -16,6 +16,9 @@ use annot_archive::ingest::{
 use annot_archive::kindle::parse::{ParseConfig, RawClipping, parse};
 use annot_archive::kindle::replay::{ReplayConfig, replay};
 use annot_archive::merge_books::merge_books;
+use annot_archive::push::{
+    PushOptions, PushReport, calibre_debug, push, running_calibre_processes,
+};
 use annot_archive::resolve::{Lookup, Resolved, resolve};
 
 #[derive(Parser)]
@@ -98,6 +101,28 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Write the archive's highlights into calibre's EPUBs (backs up
+    /// metadata.db first; calibre and its viewer must be closed)
+    PushCalibre {
+        /// Archive directory
+        #[arg(long)]
+        archive: PathBuf,
+        /// calibre library root; defaults to [calibre] library in config.toml
+        #[arg(long)]
+        library: Option<PathBuf>,
+        /// Settings file; defaults to config.toml in the archive, if present
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Also push these match kinds: approximate, ambiguous
+        #[arg(long, value_delimiter = ',')]
+        include: Vec<String>,
+        /// Confirm that calibre and its viewer are closed; required to write
+        #[arg(long)]
+        calibre_closed: bool,
+        /// Show what would be written without writing anything
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Join two book files that are one book: KEEP gains ABSORB's entries and
     /// keys, and ABSORB's file is deleted
     MergeBooks {
@@ -173,6 +198,21 @@ fn main() -> ExitCode {
             config.as_deref(),
             rederive,
             &book,
+            dry_run,
+        ),
+        Command::PushCalibre {
+            archive,
+            library,
+            config,
+            include,
+            calibre_closed,
+            dry_run,
+        } => run_push(
+            &archive,
+            library.as_deref(),
+            config.as_deref(),
+            &include,
+            calibre_closed,
             dry_run,
         ),
         Command::MergeBooks {
@@ -259,7 +299,7 @@ fn print_calibre_ingest(r: &CalibreIngestReport, dry_run: bool) {
         .sum();
     if not_writable > 0 {
         println!(
-            "  {not_writable} are on formats other than {}: archived, but never written back to calibre.",
+            "  {not_writable} are on formats other than {0}; derive-calibre places them in the book's {0} too.",
             annot_archive::calibre::WRITABLE_FORMAT
         );
     }
@@ -402,6 +442,94 @@ fn print_derive(r: &DeriveReport, dry_run: bool) {
         println!("\n{}:", &section[2..]);
         for l in lines {
             println!("  {l}");
+        }
+    }
+}
+
+fn run_push(
+    archive: &Path,
+    library: Option<&Path>,
+    config: Option<&Path>,
+    include: &[String],
+    calibre_closed: bool,
+    dry_run: bool,
+) -> ExitCode {
+    let mut options = PushOptions::default();
+    for kind in include {
+        match kind.as_str() {
+            "approximate" => options.include_approximate = true,
+            "ambiguous" => options.include_ambiguous = true,
+            other => {
+                eprintln!("--include takes approximate and/or ambiguous, not {other:?}");
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+    if !dry_run {
+        if !calibre_closed {
+            eprintln!(
+                "push writes to calibre's metadata.db: close calibre and its viewer, then pass --calibre-closed (or use --dry-run)"
+            );
+            return ExitCode::FAILURE;
+        }
+        let running = running_calibre_processes();
+        if !running.is_empty() {
+            eprintln!(
+                "calibre is still running ({}); close it and try again",
+                running.join(", ")
+            );
+            return ExitCode::FAILURE;
+        }
+    }
+    let result = Config::load(config, archive).and_then(|config| {
+        let library = library
+            .map(Path::to_path_buf)
+            .or(config.calibre.library.clone())
+            .ok_or("no calibre library: pass --library or set [calibre] library in config.toml")?;
+        let debug = calibre_debug(config.calibre.debug_executable.as_deref());
+        push(&library, archive, &options, &debug, dry_run)
+    });
+    match result {
+        Ok(r) => {
+            print_push(&r, dry_run);
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn print_push(r: &PushReport, dry_run: bool) {
+    let p = &r.plan;
+    let (added, updated): (usize, usize) = p
+        .books
+        .iter()
+        .map(|b| (b.added, b.updated))
+        .fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
+    let verb = if dry_run { "would write" } else { "wrote" };
+    println!(
+        "{verb} {} books: {added} highlights added, {updated} updated; {} books already up to date",
+        p.books.len(),
+        p.up_to_date
+    );
+    if let Some(b) = &r.backup {
+        println!("metadata.db backed up to {}", b.display());
+    }
+    if !p.books.is_empty() {
+        println!();
+        for b in &p.books {
+            println!(
+                "  +{} ~{} ={} kept {}  {} (#{})",
+                b.added, b.updated, b.unchanged, b.kept, b.title, b.book_id
+            );
+        }
+    }
+    if !p.skipped.is_empty() {
+        println!("\nNot pushed:");
+        for (reason, n) in &p.skipped {
+            println!("  {n:5}  {reason}");
         }
     }
 }
