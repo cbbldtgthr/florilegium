@@ -7,6 +7,8 @@ use clap::{Parser, Subcommand};
 use annot_archive::calibre::db::Library;
 use annot_archive::check::check;
 use annot_archive::config::Config;
+use annot_archive::derive::books::How;
+use annot_archive::derive::{BookOutcome, DeriveReport, derive_calibre};
 use annot_archive::id::{EntryKind, key_v1};
 use annot_archive::ingest::{
     BookReport, CalibreIngestReport, IngestReport, ingest_calibre, ingest_clippings,
@@ -74,6 +76,28 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Work out where each Kindle highlight sits in calibre's EPUB and record
+    /// it in the archive (derived data only; never touches native entries)
+    DeriveCalibre {
+        /// Archive directory
+        #[arg(long)]
+        archive: PathBuf,
+        /// calibre library root; defaults to [calibre] library in config.toml
+        #[arg(long)]
+        library: Option<PathBuf>,
+        /// Settings file; defaults to config.toml in the archive, if present
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Also recompute exact, approximate and ambiguous entries
+        #[arg(long)]
+        rederive: bool,
+        /// Only these archive book files (repeatable)
+        #[arg(long)]
+        book: Vec<String>,
+        /// Report what would change without writing anything
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Join two book files that are one book: KEEP gains ABSORB's entries and
     /// keys, and ABSORB's file is deleted
     MergeBooks {
@@ -133,6 +157,21 @@ fn main() -> ExitCode {
             &archive,
             library.as_deref(),
             config.as_deref(),
+            &book,
+            dry_run,
+        ),
+        Command::DeriveCalibre {
+            archive,
+            library,
+            config,
+            rederive,
+            book,
+            dry_run,
+        } => run_derive(
+            &archive,
+            library.as_deref(),
+            config.as_deref(),
+            rederive,
             &book,
             dry_run,
         ),
@@ -237,6 +276,134 @@ fn print_calibre_ingest(r: &CalibreIngestReport, dry_run: bool) {
         }
     }
     println!("\n(skipped {} highlights deleted in calibre)", r.removed);
+}
+
+fn run_derive(
+    archive: &Path,
+    library: Option<&Path>,
+    config: Option<&Path>,
+    rederive: bool,
+    books: &[String],
+    dry_run: bool,
+) -> ExitCode {
+    let result = Config::load(config, archive).and_then(|config| {
+        let library = library
+            .map(Path::to_path_buf)
+            .or(config.calibre.library.clone())
+            .ok_or("no calibre library: pass --library or set [calibre] library in config.toml")?;
+        derive_calibre(
+            &library,
+            archive,
+            &config.derive_config(),
+            rederive,
+            books,
+            dry_run,
+        )
+    });
+    match result {
+        Ok(r) => {
+            print_derive(&r, dry_run);
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn print_derive(r: &DeriveReport, dry_run: bool) {
+    let mut totals: BTreeMap<&str, usize> = BTreeMap::new();
+    for b in &r.books {
+        for (k, n) in &b.counts {
+            *totals.entry(k.as_str()).or_default() += n;
+        }
+    }
+    let summary: Vec<String> = totals.iter().map(|(k, n)| format!("{n} {k}")).collect();
+    println!(
+        "{} books derived: {}",
+        r.books.len(),
+        if summary.is_empty() {
+            "nothing to do".into()
+        } else {
+            summary.join(", ")
+        }
+    );
+    let verb = if dry_run { "would write" } else { "wrote" };
+    println!(
+        "files: {verb} {} changed; {} unchanged",
+        r.saved.updated.len(),
+        r.saved.unchanged
+    );
+
+    let mut sections: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    for b in &r.books {
+        let counts: Vec<String> = b.counts.iter().map(|(k, n)| format!("{n} {k}")).collect();
+        let (section, line) = match &b.outcome {
+            BookOutcome::Matched { calibre_title, how } => {
+                let how = match how {
+                    How::AlreadyLinked => "linked".to_string(),
+                    How::Override => "override".to_string(),
+                    How::Fuzzy(s) => format!("matched {s:.2}"),
+                };
+                (
+                    "1 Matched",
+                    format!(
+                        "{}  ->  {calibre_title} ({how}): {}",
+                        b.file_name,
+                        counts.join(", ")
+                    ),
+                )
+            }
+            BookOutcome::NoEpub { calibre_title } => (
+                "2 No EPUB in calibre (convert it to EPUB)",
+                format!("{}  ->  {calibre_title}", b.file_name),
+            ),
+            BookOutcome::NoCalibreBook { candidates } => {
+                let mut line = format!("{}  ({})", b.file_name, b.title);
+                for c in candidates.iter().filter(|c| c.score > 0.0) {
+                    let epub = if c.has_epub { "" } else { ", no EPUB" };
+                    line.push_str(&format!(
+                        "\n      {:.2} {} (#{}{epub})",
+                        c.score, c.title, c.calibre_id
+                    ));
+                    if let (Some(u), Some(t), true) = (&c.uuid, &b.kindle_title, c.score >= 0.25) {
+                        line.push_str(&format!(
+                            "\n           override: {t:?}: {{\"calibre_uuid\": {u:?}}}"
+                        ));
+                    }
+                }
+                (
+                    "3 No calibre book (copy an override line into book-overrides.json if one is right)",
+                    line,
+                )
+            }
+            BookOutcome::Gone { calibre_uuid } => (
+                "4 calibre book no longer in the library",
+                format!("{}  ({calibre_uuid})", b.file_name),
+            ),
+            BookOutcome::UnreadableEpub { error } => {
+                ("5 Unreadable EPUB", format!("{}: {error}", b.file_name))
+            }
+            BookOutcome::ClaimedByOtherFile {
+                calibre_title,
+                other_file,
+            } => (
+                "6 Already has its own archive file (merge first, then derive again)",
+                format!(
+                    "just merge-books {other_file} {} <archive>   # {calibre_title}",
+                    b.file_name
+                ),
+            ),
+        };
+        sections.entry(section).or_default().push(line);
+    }
+    for (section, lines) in sections {
+        println!("\n{}:", &section[2..]);
+        for l in lines {
+            println!("  {l}");
+        }
+    }
 }
 
 fn run_merge_books(archive: &Path, keep: &str, absorb: &str, dry_run: bool) -> ExitCode {

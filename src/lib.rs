@@ -3,6 +3,7 @@ pub mod calibre;
 pub mod cfi;
 pub mod check;
 pub mod config;
+pub mod derive;
 pub mod epub;
 pub mod id;
 pub mod ingest;

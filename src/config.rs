@@ -27,6 +27,17 @@ pub struct CalibreConfig {
     /// Library root (the folder holding `metadata.db`), used when no
     /// `--library` is given.
     pub library: Option<std::path::PathBuf>,
+    /// Fuzzy book matching: the score (0 to 1) a calibre book needs, and how
+    /// far it must lead the runner-up.
+    pub book_match_threshold: Option<f64>,
+    pub book_match_margin: Option<f64>,
+    /// Similarity (0 to 1) for a fuzzy text match to count as `approximate`.
+    pub approximate_threshold: Option<f64>,
+    /// A repeated passage is placed by Kindle location only if the nearest
+    /// occurrence is at most this fraction of the runner-up's distance.
+    pub disambiguation_ratio: Option<f64>,
+    /// calibre builtin highlight colour for derived highlights, e.g. `yellow`.
+    pub highlight_color: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -97,6 +108,19 @@ impl Config {
             set(&mut c.added_on, &w.added_on);
         }
         c
+    }
+
+    pub fn derive_config(&self) -> crate::derive::DeriveConfig {
+        let c = &self.calibre;
+        let mut d = crate::derive::DeriveConfig::default();
+        set(&mut d.book_match.threshold, &c.book_match_threshold);
+        set(&mut d.book_match.margin, &c.book_match_margin);
+        set(&mut d.approximate_threshold, &c.approximate_threshold);
+        set(&mut d.disambiguation_ratio, &c.disambiguation_ratio);
+        if let Some(color) = &c.highlight_color {
+            d.style = serde_json::json!({"kind": "color", "type": "builtin", "which": color});
+        }
+        d
     }
 
     pub fn replay_config(&self) -> ReplayConfig {

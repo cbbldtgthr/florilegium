@@ -20,46 +20,11 @@ does.
 
 ## M3: derive CFIs for Kindle highlights
 
-### Match archive books to calibre books
-Precedence: existing `calibre_uuid`; `book-overrides.json` in the archive
-(user-edited: Kindle title key → calibre book UUID, plus optional per-book
-total locations); fuzzy title and
-author match (normalise case, punctuation, leading articles, subtitle after a
-colon, series prefix) accepted only above a threshold with a clear margin over
-the runner-up; else `unmatched` with `reason: "no-calibre-book"`, logged once
-per book. If the matched calibre book already has its own archive file
-(from `ingest-calibre`), do not set `calibre_uuid` on the Kindle file, which
-would make two files claim one book: report the pair for `merge-books`
-instead. Only the EPUB format is used; a book without one is
-`reason: "no-epub"`.
-
-### Classify matches
-`cfi::Haystack` finds every occurrence of a highlight's `norm_v1` text in a
-spine document (a document that fails calibre's XML path is `unmatched`,
-`reason: "parse-error"`). Search the whole spine: one occurrence → `exact`;
-several → disambiguate by Kindle location (below); none → bounded fuzzy search
-above a threshold → `approximate`, else `unmatched`, `reason:
-"text-not-found"`. Text found only by joining two spine documents is
-`unmatched`, `reason: "cross-spine"`.
-
-### Disambiguate by Kindle location
-Pass 1: entries with exactly one occurrence give (Kindle location, offset in
-the concatenated book text) points; fit a monotone mapping. Pass 2: for
-multi-occurrence entries, predict the offset and pick the nearest candidate if
-it beats the runner-up by a configured margin, else `ambiguous` with
-`candidates` listed and the best guess in the CFI fields. Too few points: fall
-back to `location / total_locations` (override, else the book's max location).
-
-### `derive-calibre`
-`derive-calibre --library PATH --archive DIR [--rederive] [--book …]` fills
-the `calibre` block of Kindle entries from `cfi::encode` (start and end of the
-match): `start_cfi`, `end_cfi`, `spine_name`, `spine_index`, `format: "EPUB"`,
-`book_id`, `style` (configured default), `toc_family_titles` from the EPUB TOC
-where feasible, `highlighted_text` (the entry's text), `match`, `reason`,
-`candidates`, `derived_with` (tool version). It touches only `calibre` blocks
-and `book.calibre_uuid`, and never `native` or `manual` entries. Generated
-CFIs are tight around the text: calibre's own selections sometimes take in an
-edge space, which is why its CFIs can differ by one.
+### Chapter titles on derived highlights
+Fill `toc_family_titles` on derived blocks from the EPUB's table of contents
+(NCX or nav), mapping each spine document and anchor to its chain of TOC
+titles as calibre's viewer does, so derived highlights show their chapter in
+"Browse annotations" like native ones.
 
 ### Synthetic EPUB and golden samples
 A small synthetic EPUB (repeated phrases, curly quotes, em dashes, nested
@@ -79,6 +44,11 @@ approximate,ambiguous]`.
   `native` matches, on EPUB only: a `native` entry read from another format
   (AZW3, MOBI) stays archive-only. `approximate`/`ambiguous` need `--include`. Never
   `unmatched`, pending, orphan notes or tombstones.
+- Build each annotation from the entry and its `calibre` block: `uuid` = entry
+  ID, `timestamp` = `created`, `highlighted_text` = `text` (derived blocks do
+  not repeat it), `notes` = `note`, and the block's CFIs, spine fields and
+  `style`; drop the tool's own keys (`match`, `reason`, `candidates`,
+  `occurrences`, `similarity`, `derived_with`, `format`, `book_id`).
 - Mechanism: calibre's merge keeps the newer timestamp and, on a tie, the
   existing annotation, so a plain merge cannot update text. Instead, read the
   book/format's current viewer annotations, replace those whose `uuid` matches

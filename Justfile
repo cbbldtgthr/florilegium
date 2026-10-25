@@ -41,6 +41,11 @@ inspect-calibre library book:
 ingest-calibre archive *args:
     a="$1"; shift 1; cargo run --quiet -- ingest-calibre --archive "$a" "$@"
 
+# Place Kindle highlights in calibre's EPUBs; add `--library PATH`, `--rederive`, `--book FILE` or `--dry-run`
+[positional-arguments]
+derive-calibre archive *args:
+    a="$1"; shift 1; cargo run --quiet --release -- derive-calibre --archive "$a" "$@"
+
 # Join two book files that are one book: KEEP gains ABSORB's entries; add `--dry-run` to only report
 [positional-arguments]
 merge-books keep absorb archive *args:
