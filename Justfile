@@ -22,6 +22,11 @@ fmt:
 fmt-check:
     cargo fmt --all -- --check
 
+# Summarise a My Clippings.txt without writing anything; add `--book TEXT` to list one book
+[positional-arguments]
+inspect-clippings clippings *args:
+    cargo run --quiet -- inspect-clippings "$@"
+
 # Run annot-archive with the given arguments, e.g. `just run --help`
 run *args:
     cargo run --quiet -- {{args}}
