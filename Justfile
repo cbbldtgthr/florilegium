@@ -27,6 +27,11 @@ fmt-check:
 inspect-clippings clippings *args:
     cargo run --quiet -- inspect-clippings "$@"
 
+# Replay a My Clippings.txt into an archive directory; add `--dry-run` to only report
+[positional-arguments]
+ingest-clippings clippings archive *args:
+    c="$1"; a="$2"; shift 2; cargo run --quiet -- ingest-clippings "$c" --archive "$a" "$@"
+
 # Run annot-archive with the given arguments, e.g. `just run --help`
 run *args:
     cargo run --quiet -- {{args}}

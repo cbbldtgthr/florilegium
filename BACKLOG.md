@@ -19,46 +19,6 @@ does.
 
 ## M1: Core — clippings to archive (no calibre needed)
 
-### Identity merge into the archive
-Each replayed book joins the archive file whose `kindle_titles` share its
-`key_v1` title key; otherwise a new file is added (named from that key), with
-`title` from the clipping's title, `authors` from its author group split on
-`;` (a comma is ambiguous: `Vell, Orrin` is one person), and every title line
-seen added to `kindle_titles`.
-
-For each incoming cluster, `U = {id} ∪ aliases`; `M` = archive entries in the
-same book (live or tombstoned) whose `{id} ∪ aliases` intersects `U`.
-- `|M| = 0`: create.
-- `|M| = 1`: update. The entry keeps its ID; aliases gain `U` minus that ID.
-  `text`, `note`, `created`, `kindle` are replaced; `sources` unioned. If
-  `text` changed and the calibre match is derived (`exact`, `approximate`,
-  `ambiguous`, `unmatched`), drop the `calibre` block back to pending; keep it
-  for `native` and `manual`.
-- `|M| ≥ 2`: merge the entries. Survivor is the entry whose ID appears earliest
-  among the cluster's members in file order (fallback: lexicographic). Union
-  aliases (plus the losers' IDs) and sources. A tombstone in the group makes
-  the result a tombstone. Reported prominently.
-- Last ingest wins per field, on purpose: a calibre-side note edit is
-  overwritten by the next Kindle ingest and the user rejects the hunk in
-  review. No conflict machinery.
-
-### Tombstones
-`"deleted": true` is set by hand. Tombstones still take part in identity
-matching (an incoming cluster that maps onto one updates nothing visible and
-creates no live entry), but are excluded from push, export and `resolve`'s
-default output.
-
-### `ingest-clippings` command and change report
-`annot-archive ingest-clippings CLIPPINGS --archive DIR [--dry-run] [--config
-PATH]` re-processes the whole file each run. Loads the parser's locale settings
-(keywords, date formats, date word translations, Kindle timezone) from
-`config.toml`, falling back to the English defaults. Prints per-book counts (created,
-updated, unchanged, merged, tombstone-matched), warnings (unparsed blocks,
-orphan notes, bad dates, notes joined from several positions), and a prominent list of `|M| ≥ 2` merges.
-Acceptance: a second run with the same file changes zero bytes; appending
-clippings changes only the entries they touch; an entry later edited on the
-Kindle keeps its original ID.
-
 ### `check` and `resolve`
 - `check --archive DIR`: duplicate IDs or alias collisions across entries, an
   alias that is another entry's ID, schema violations, two files claiming one

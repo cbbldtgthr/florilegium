@@ -53,6 +53,10 @@ pub struct Cluster {
     pub superseded_notes: Vec<usize>,
     /// File indexes of every member, ascending.
     pub members: Vec<usize>,
+    /// Would-be IDs of the members in file order, without duplicates.
+    pub member_ids: Vec<String>,
+    /// How many distinct notes were joined into `note`.
+    pub note_parts: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,20 +150,27 @@ fn replay_book(clips: &[&RawClipping], config: &ReplayConfig) -> Vec<Cluster> {
 }
 
 fn finish(g: Group, kind: EntryKind) -> Cluster {
-    let mut ids: Vec<String> = g.members.iter().map(|c| would_be_id(c)).collect();
-    let id = ids.remove(0);
-    ids.sort();
-    ids.dedup();
-    ids.retain(|a| *a != id);
-    let (note, superseded_notes) = combine_notes(&g.notes);
+    let mut member_ids: Vec<String> = Vec::new();
+    for c in &g.members {
+        let id = would_be_id(c);
+        if !member_ids.contains(&id) {
+            member_ids.push(id);
+        }
+    }
+    let id = member_ids[0].clone();
+    let mut aliases = member_ids[1..].to_vec();
+    aliases.sort();
+    let (note, note_parts, superseded_notes) = combine_notes(&g.notes);
     Cluster {
         id,
-        aliases: ids,
+        aliases,
         kind,
         latest: g.latest().clone(),
         note,
         superseded_notes,
         members: g.members.iter().map(|c| c.index).collect(),
+        member_ids,
+        note_parts,
     }
 }
 
@@ -167,9 +178,9 @@ fn finish(g: Group, kind: EntryKind) -> Cluster {
 /// the same position are edits, so the latest wins; notes at different
 /// positions are separate thoughts (e.g. a word highlighted and annotated,
 /// then the whole sentence), joined with a blank line in order of first
-/// writing, each distinct text once. Returns the note and the file indexes of
-/// the edits that lost.
-fn combine_notes(notes: &[&RawClipping]) -> (Option<String>, Vec<usize>) {
+/// writing, each distinct text once. Returns the note, how many distinct
+/// notes it joins, and the file indexes of the edits that lost.
+fn combine_notes(notes: &[&RawClipping]) -> (Option<String>, usize, Vec<usize>) {
     let mut by_position: Vec<Vec<&RawClipping>> = Vec::new();
     for &n in notes {
         match by_position
@@ -191,7 +202,8 @@ fn combine_notes(notes: &[&RawClipping]) -> (Option<String>, Vec<usize>) {
         .iter()
         .flat_map(|g| g[..g.len() - 1].iter().map(|n| n.index))
         .collect();
-    ((!texts.is_empty()).then(|| texts.join("\n\n")), superseded)
+    let note = (!texts.is_empty()).then(|| texts.join("\n\n"));
+    (note, texts.len(), superseded)
 }
 
 pub fn would_be_id(c: &RawClipping) -> String {

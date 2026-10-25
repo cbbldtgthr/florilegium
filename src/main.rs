@@ -1,10 +1,12 @@
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
+use annot_archive::config::Config;
 use annot_archive::id::{EntryKind, key_v1};
+use annot_archive::ingest::{IngestReport, ingest_clippings};
 use annot_archive::kindle::parse::{ParseConfig, RawClipping, parse};
 use annot_archive::kindle::replay::{ReplayConfig, replay};
 
@@ -25,6 +27,20 @@ enum Command {
         #[arg(long)]
         book: Option<String>,
     },
+    /// Replay a My Clippings.txt and merge it into the archive by identity
+    IngestClippings {
+        /// Path to My Clippings.txt
+        clippings: PathBuf,
+        /// Archive directory (the root of your private archive repository)
+        #[arg(long)]
+        archive: PathBuf,
+        /// Settings file; defaults to config.toml in the archive, if present
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Report what would change without writing anything
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -32,7 +48,105 @@ fn main() -> ExitCode {
         Command::InspectClippings { clippings, book } => {
             inspect_clippings(&clippings, book.as_deref())
         }
+        Command::IngestClippings {
+            clippings,
+            archive,
+            config,
+            dry_run,
+        } => run_ingest(&clippings, &archive, config.as_deref(), dry_run),
     }
+}
+
+fn run_ingest(clippings: &Path, archive: &Path, config: Option<&Path>, dry_run: bool) -> ExitCode {
+    let result = Config::load(config, archive).and_then(|config| {
+        let input = std::fs::read_to_string(clippings)
+            .map_err(|e| format!("cannot read {}: {e}", clippings.display()))?;
+        ingest_clippings(&input, archive, &config, dry_run)
+    });
+    match result {
+        Ok(report) => {
+            print_ingest(&report, dry_run);
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn print_ingest(r: &IngestReport, dry_run: bool) {
+    let sum =
+        |f: fn(&annot_archive::ingest::BookReport) -> usize| r.books.iter().map(f).sum::<usize>();
+    let merges: Vec<_> = r
+        .books
+        .iter()
+        .flat_map(|b| b.merges.iter().map(move |m| (b, m)))
+        .collect();
+    println!(
+        "{} books: {} entries created, {} updated, {} unchanged, {} merged, {} matched tombstones",
+        r.books.len(),
+        sum(|b| b.created),
+        sum(|b| b.updated),
+        sum(|b| b.unchanged),
+        merges.len(),
+        sum(|b| b.tombstone_matched),
+    );
+    let verb = if dry_run { "would write" } else { "wrote" };
+    println!(
+        "files: {verb} {} new, {} changed; {} unchanged",
+        r.saved.created.len(),
+        r.saved.updated.len(),
+        r.saved.unchanged
+    );
+
+    let changed: Vec<_> = r.books.iter().filter(|b| b.changed()).collect();
+    if !changed.is_empty() {
+        println!("\nChanged books:");
+        for b in changed {
+            let new = if b.new_file { " (new file)" } else { "" };
+            println!(
+                "  +{} ~{} ={} merged {} tombstone {}  {}{new}",
+                b.created,
+                b.updated,
+                b.unchanged,
+                b.merges.len(),
+                b.tombstone_matched,
+                b.file_name
+            );
+        }
+    }
+
+    if !merges.is_empty() {
+        println!("\n!! Entries merged because a clipping joined them (review these):");
+        for (b, (id, absorbed)) in merges {
+            println!("  {id} absorbed {} in {}", absorbed.join(", "), b.file_name);
+        }
+    }
+
+    let p = &r.parsed;
+    let warnings =
+        p.warnings.len() + r.orphan_notes.len() + r.joined_notes.len() + r.warnings.len();
+    if warnings > 0 {
+        println!("\nWarnings ({warnings}):");
+        for w in &p.warnings {
+            println!("  clippings line {}: {}", w.line, w.message);
+        }
+        for (title, line, text) in &r.orphan_notes {
+            let text: String = text.chars().take(60).collect();
+            println!("  clippings line {line}: orphan note {text:?} in {title}");
+        }
+        for (title, line) in &r.joined_notes {
+            println!("  clippings line {line}: several notes joined on one highlight in {title}");
+        }
+        for w in &r.warnings {
+            println!("  {w}");
+        }
+    }
+    println!(
+        "\n(skipped {} bookmarks, {} clipping-limit stubs)",
+        p.bookmarks, p.stubs
+    );
 }
 
 fn inspect_clippings(path: &PathBuf, book: Option<&str>) -> ExitCode {
