@@ -15,6 +15,7 @@ use annot_archive::ingest::{
 };
 use annot_archive::kindle::parse::{ParseConfig, RawClipping, parse};
 use annot_archive::kindle::replay::{ReplayConfig, replay};
+use annot_archive::list::list;
 use annot_archive::merge_books::merge_books;
 use annot_archive::push::{
     PushOptions, PushReport, calibre_debug, push, running_calibre_processes,
@@ -33,6 +34,7 @@ enum Command {
     /// Parse a My Clippings.txt and summarise what it holds, without writing anything
     InspectClippings {
         /// Path to My Clippings.txt
+        #[arg(env = "ANNOT_CLIPPINGS")]
         clippings: PathBuf,
         /// List the entries of books whose title line contains this text
         #[arg(long)]
@@ -41,9 +43,10 @@ enum Command {
     /// Replay a My Clippings.txt and merge it into the archive by identity
     IngestClippings {
         /// Path to My Clippings.txt
+        #[arg(env = "ANNOT_CLIPPINGS")]
         clippings: PathBuf,
         /// Archive directory: a folder of its own, in a private repository
-        #[arg(long)]
+        #[arg(long, env = "ANNOT_ARCHIVE")]
         archive: PathBuf,
         /// Settings file; defaults to config.toml in the archive, if present
         #[arg(long)]
@@ -55,7 +58,7 @@ enum Command {
     /// Dump a calibre book's raw annotation rows as JSON, without writing anything
     InspectCalibre {
         /// calibre library root (the folder holding metadata.db)
-        #[arg(long)]
+        #[arg(long, env = "ANNOT_CALIBRE_LIBRARY")]
         library: PathBuf,
         /// calibre's numeric book ID
         #[arg(long)]
@@ -64,10 +67,10 @@ enum Command {
     /// Read calibre's viewer highlights (EPUB) into the archive by identity
     IngestCalibre {
         /// Archive directory: a folder of its own, in a private repository
-        #[arg(long)]
+        #[arg(long, env = "ANNOT_ARCHIVE")]
         archive: PathBuf,
         /// calibre library root; defaults to [calibre] library in config.toml
-        #[arg(long)]
+        #[arg(long, env = "ANNOT_CALIBRE_LIBRARY")]
         library: Option<PathBuf>,
         /// Settings file; defaults to config.toml in the archive, if present
         #[arg(long)]
@@ -83,10 +86,10 @@ enum Command {
     /// it in the archive (derived data only; never touches native entries)
     DeriveCalibre {
         /// Archive directory
-        #[arg(long)]
+        #[arg(long, env = "ANNOT_ARCHIVE")]
         archive: PathBuf,
         /// calibre library root; defaults to [calibre] library in config.toml
-        #[arg(long)]
+        #[arg(long, env = "ANNOT_CALIBRE_LIBRARY")]
         library: Option<PathBuf>,
         /// Settings file; defaults to config.toml in the archive, if present
         #[arg(long)]
@@ -105,10 +108,10 @@ enum Command {
     /// metadata.db first; calibre and its viewer must be closed)
     PushCalibre {
         /// Archive directory
-        #[arg(long)]
+        #[arg(long, env = "ANNOT_ARCHIVE")]
         archive: PathBuf,
         /// calibre library root; defaults to [calibre] library in config.toml
-        #[arg(long)]
+        #[arg(long, env = "ANNOT_CALIBRE_LIBRARY")]
         library: Option<PathBuf>,
         /// Settings file; defaults to config.toml in the archive, if present
         #[arg(long)]
@@ -131,16 +134,23 @@ enum Command {
         /// Book file whose entries and keys move into KEEP
         absorb: String,
         /// Archive directory
-        #[arg(long)]
+        #[arg(long, env = "ANNOT_ARCHIVE")]
         archive: PathBuf,
         /// Report what would change without writing anything
         #[arg(long)]
         dry_run: bool,
     },
+    /// Print every live entry on one tab-separated line (ID, book, chapter,
+    /// text, note), for searching; `just find` picks one with fzf
+    List {
+        /// Archive directory
+        #[arg(long, env = "ANNOT_ARCHIVE")]
+        archive: PathBuf,
+    },
     /// Validate the archive; exits 1 if anything is wrong
     Check {
         /// Archive directory
-        #[arg(long)]
+        #[arg(long, env = "ANNOT_ARCHIVE")]
         archive: PathBuf,
     },
     /// Look up an entry by ID or alias. Exits 0 if found, 2 if it was deleted,
@@ -149,7 +159,7 @@ enum Command {
         /// An entry ID or any alias it has had
         id: String,
         /// Archive directory
-        #[arg(long)]
+        #[arg(long, env = "ANNOT_ARCHIVE")]
         archive: PathBuf,
         /// Print the result as JSON
         #[arg(long)]
@@ -221,6 +231,23 @@ fn main() -> ExitCode {
             archive,
             dry_run,
         } => run_merge_books(&archive, &keep, &absorb, dry_run),
+        Command::List { archive } => match list(&archive) {
+            Ok(lines) => {
+                use std::io::Write;
+                let mut out = std::io::stdout().lock();
+                for l in lines {
+                    // A closed pipe (fzf exiting early) just ends the listing.
+                    if writeln!(out, "{l}").is_err() {
+                        break;
+                    }
+                }
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                ExitCode::FAILURE
+            }
+        },
         Command::Check { archive } => run_check(&archive),
         Command::Resolve {
             id,
@@ -658,6 +685,10 @@ fn print_resolved(r: &Resolved, json: bool, with_content: bool) {
         place.unwrap_or_default(),
         e.created.as_deref().unwrap_or("no date")
     );
+    let chapter = annot_archive::list::chapter(e);
+    if !chapter.is_empty() {
+        println!("Chapter: {chapter}");
+    }
     if let Some(t) = &e.text {
         println!("\n{t}");
     }

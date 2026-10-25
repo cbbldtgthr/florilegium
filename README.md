@@ -63,6 +63,9 @@ identity or the archive format may assume there are only two.
 
 ## Development
 
-Everything runs through `just`; run `just` to list the recipes. The tool is
+Everything runs through `just`; run `just` to list the recipes. Copy
+`.env.example` to `.env` (gitignored) and set the paths to your archive,
+clippings file and calibre library once; `just` loads it, so recipes need no
+paths. `just find` (fuzzy search for an entry's ID) needs `fzf`. The tool is
 written in Rust. calibre is needed only for the commands that touch a calibre
 library.

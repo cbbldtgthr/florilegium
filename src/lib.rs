@@ -8,6 +8,7 @@ pub mod epub;
 pub mod id;
 pub mod ingest;
 pub mod kindle;
+pub mod list;
 pub mod merge;
 pub mod merge_books;
 pub mod norm;

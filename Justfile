@@ -1,3 +1,6 @@
+# Paths come from a gitignored .env (see .env.example); flags still override them.
+set dotenv-load := true
+
 [private]
 default:
     @just --list
@@ -26,55 +29,64 @@ fmt:
 fmt-check:
     cargo fmt --all -- --check
 
-# Summarise a My Clippings.txt without writing anything; add `--book TEXT` to list one book
+# Summarise My Clippings.txt ($ANNOT_CLIPPINGS) without writing anything; add `--book TEXT` to list one book
 [positional-arguments]
-inspect-clippings clippings *args:
+inspect-clippings *args:
     cargo run --quiet -- inspect-clippings "$@"
 
-# Replay a My Clippings.txt into an archive directory; add `--dry-run` to only report
+# Replay My Clippings.txt ($ANNOT_CLIPPINGS) into the archive ($ANNOT_ARCHIVE); add `--dry-run` to only report
 [positional-arguments]
-ingest-clippings clippings archive *args:
-    c="$1"; a="$2"; shift 2; cargo run --quiet -- ingest-clippings "$c" --archive "$a" "$@"
+ingest-clippings *args:
+    cargo run --quiet -- ingest-clippings "$@"
 
-# Dump one calibre book's raw annotation rows as JSON, read-only
-inspect-calibre library book:
-    cargo run --quiet -- inspect-calibre --library "{{library}}" --book "{{book}}"
+# Dump one calibre book's raw annotation rows as JSON, read-only (library: $ANNOT_CALIBRE_LIBRARY)
+inspect-calibre book:
+    cargo run --quiet -- inspect-calibre --book "{{book}}"
 
-# Read calibre's viewer highlights into an archive; add `--library PATH`, `--book ID` or `--dry-run`
+# Read calibre's viewer highlights into the archive; add `--book ID` or `--dry-run`
 [positional-arguments]
-ingest-calibre archive *args:
-    a="$1"; shift 1; cargo run --quiet -- ingest-calibre --archive "$a" "$@"
+ingest-calibre *args:
+    cargo run --quiet -- ingest-calibre "$@"
 
-# Place Kindle highlights in calibre's EPUBs; add `--library PATH`, `--rederive`, `--book FILE` or `--dry-run`
+# Place highlights in calibre's EPUBs; add `--rederive`, `--book FILE` or `--dry-run`
 [positional-arguments]
-derive-calibre archive *args:
-    a="$1"; shift 1; cargo run --quiet --release -- derive-calibre --archive "$a" "$@"
+derive-calibre *args:
+    cargo run --quiet --release -- derive-calibre "$@"
 
 # Write highlights into calibre's EPUBs; needs `--calibre-closed` (or `--dry-run`), optionally `--include approximate,ambiguous`
 [positional-arguments]
-push-calibre archive *args:
-    a="$1"; shift 1; cargo run --quiet --release -- push-calibre --archive "$a" "$@"
+push-calibre *args:
+    cargo run --quiet --release -- push-calibre "$@"
 
 # Join two book files that are one book: KEEP gains ABSORB's entries; add `--dry-run` to only report
 [positional-arguments]
-merge-books keep absorb archive *args:
-    k="$1"; b="$2"; a="$3"; shift 3; cargo run --quiet -- merge-books "$k" "$b" --archive "$a" "$@"
+merge-books keep absorb *args:
+    cargo run --quiet -- merge-books "$@"
 
-# Validate an archive directory; fails if anything is wrong
-check archive:
-    cargo run --quiet -- check --archive "{{archive}}"
+# Print every live entry on one tab-separated line: ID, book, chapter, text, note
+list:
+    cargo run --quiet -- list
+
+# Fuzzy-find an entry with fzf; prints its ID and copies it to the clipboard
+[positional-arguments]
+find *query:
+    ./just_scripts/find.sh "$@"
+
+# Validate the archive; fails if anything is wrong
+check:
+    cargo run --quiet -- check
 
 # Look up an entry by ID or alias; add `--json` or `--show-deleted`
 [positional-arguments]
-resolve id archive *args:
-    i="$1"; a="$2"; shift 2; cargo run --quiet -- resolve "$i" --archive "$a" "$@"
+resolve id *args:
+    cargo run --quiet -- resolve "$@"
 
 # Dev-only: regenerate a real library's EPUB highlight CFIs from their text and compare with calibre's
-cfi-selfcheck library:
+cfi-selfcheck library=env("ANNOT_CALIBRE_LIBRARY", ""):
     cargo run --quiet --release --example cfi_selfcheck -- "{{library}}"
 
 # Dev-only: compute chapter titles of a real library's EPUB highlights and compare with calibre's
-toc-selfcheck library:
+toc-selfcheck library=env("ANNOT_CALIBRE_LIBRARY", ""):
     cargo run --quiet --release --example toc_selfcheck -- "{{library}}"
 
 # Run annot-archive with the given arguments, e.g. `just run --help`

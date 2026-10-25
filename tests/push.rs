@@ -260,7 +260,12 @@ fn a_highlight_pushed_without_a_recorded_timestamp_is_bumped_once() {
         .annotations[0]
         .annotation
         .clone();
-    let p = plan(library(std::slice::from_ref(&same)).path(), &a, &PushOptions::default()).unwrap();
+    let p = plan(
+        library(std::slice::from_ref(&same)).path(),
+        &a,
+        &PushOptions::default(),
+    )
+    .unwrap();
     let b = &p.books[0];
     assert_eq!((b.updated, b.unchanged), (1, 0));
     assert_ne!(b.annotations[0].annotation["timestamp"], same["timestamp"]);

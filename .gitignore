@@ -7,3 +7,6 @@ My Clippings.txt
 metadata.db
 
 .DS_Store
+
+# Machine-local paths (see .env.example).
+.env
