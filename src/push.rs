@@ -43,6 +43,9 @@ pub struct PlannedAnnotation {
     pub annotation: Value,
     /// Seconds since the epoch, for calibre's `timestamp` column.
     pub timestamp: f64,
+    /// Whether the archive anchor already records the timestamp calibre holds
+    /// (anchors pushed before timestamps were recorded do not).
+    pub recorded: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -57,8 +60,9 @@ pub struct BookPlan {
     pub unchanged: usize,
     /// Annotations already in calibre that are not the archive's.
     pub kept: usize,
-    /// Archive entry IDs this plan writes.
-    pub entry_ids: Vec<String>,
+    /// Archive entry ID to the `timestamp` written for it, recorded in its
+    /// EPUB anchor after the push.
+    pub timestamps: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Default)]
@@ -140,7 +144,7 @@ pub fn plan(library: &Path, archive: &Archive, options: &PushOptions) -> Result<
             updated: 0,
             unchanged: 0,
             kept: 0,
-            entry_ids: ours.keys().cloned().collect(),
+            timestamps: BTreeMap::new(),
         };
         let mut placed: BTreeSet<String> = BTreeSet::new();
         for (data, timestamp) in &existing {
@@ -148,18 +152,26 @@ pub fn plan(library: &Path, archive: &Archive, options: &PushOptions) -> Result<
             let is_highlight = data.get("type").and_then(Value::as_str) == Some("highlight");
             match ours.get(id) {
                 Some(mine) if is_highlight && placed.insert(id.to_string()) => {
-                    if mine.annotation == *data {
+                    let mut mine = mine.clone();
+                    if mine.recorded && mine.annotation == *data {
                         plan.unchanged += 1;
                     } else {
+                        // calibre's viewer and its syncs keep whichever copy
+                        // has the newer timestamp, so a change must carry a
+                        // newer one or a cached copy wins.
+                        bump(&mut mine, *timestamp);
                         plan.updated += 1;
                     }
-                    plan.annotations.push(mine.clone());
+                    plan.timestamps
+                        .insert(id.to_string(), timestamp_text(&mine));
+                    plan.annotations.push(mine);
                 }
                 _ => {
                     plan.kept += 1;
                     plan.annotations.push(PlannedAnnotation {
                         annotation: data.clone(),
                         timestamp: *timestamp,
+                        recorded: true,
                     });
                 }
             }
@@ -171,7 +183,13 @@ pub fn plan(library: &Path, archive: &Archive, options: &PushOptions) -> Result<
             .collect();
         new.sort_by(|a, b| a.timestamp.total_cmp(&b.timestamp));
         plan.added = new.len();
-        plan.annotations.extend(new.into_iter().cloned());
+        for a in new {
+            plan.timestamps.insert(
+                a.annotation["uuid"].as_str().unwrap_or("").to_string(),
+                timestamp_text(a),
+            );
+            plan.annotations.push(a.clone());
+        }
 
         if plan.added + plan.updated == 0 {
             out.up_to_date += 1;
@@ -208,17 +226,24 @@ fn annotation(e: &Entry) -> Result<PlannedAnnotation, &'static str> {
     let Some(text) = &e.text else {
         return Err("no text");
     };
-    let timestamp: Timestamp = created.parse().map_err(|_| "unreadable date")?;
     let Some(Value::Object(anchor)) = e.calibre.get(WRITABLE_FORMAT) else {
         return Err("no EPUB anchor yet");
     };
+    // calibre's timestamp is when the annotation last changed: the anchor's,
+    // once a push or read has recorded one, else the entry's date.
+    let recorded = anchor
+        .get("timestamp")
+        .and_then(Value::as_str)
+        .map(String::from);
+    let stamp = recorded.clone().unwrap_or_else(|| created.clone());
+    let timestamp: Timestamp = stamp.parse().map_err(|_| "unreadable date")?;
     let mut a: Map<String, Value> = anchor.clone();
     for k in TOOL_KEYS {
         a.remove(k);
     }
     a.insert("type".into(), json!("highlight"));
     a.insert("uuid".into(), json!(e.id));
-    a.insert("timestamp".into(), json!(created));
+    a.insert("timestamp".into(), json!(stamp));
     a.insert("highlighted_text".into(), json!(text));
     match &e.note {
         Some(n) => a.insert("notes".into(), json!(n)),
@@ -227,7 +252,25 @@ fn annotation(e: &Entry) -> Result<PlannedAnnotation, &'static str> {
     Ok(PlannedAnnotation {
         annotation: Value::Object(a),
         timestamp: timestamp.as_millisecond() as f64 / 1000.0,
+        recorded: recorded.is_some(),
     })
+}
+
+/// Give a changed annotation a timestamp newer than the copy calibre holds
+/// (whose timestamp column is `existing`, in seconds): now, or a millisecond
+/// later than that copy if the clock says otherwise.
+fn bump(a: &mut PlannedAnnotation, existing: f64) {
+    let after = Timestamp::from_millisecond((existing * 1000.0).round() as i64 + 1)
+        .unwrap_or(Timestamp::now());
+    let now = Timestamp::now();
+    let t = if now > after { now } else { after };
+    let t = Timestamp::from_millisecond(t.as_millisecond()).unwrap_or(t);
+    a.annotation["timestamp"] = json!(crate::archive::format_timestamp(t));
+    a.timestamp = t.as_millisecond() as f64 / 1000.0;
+}
+
+fn timestamp_text(a: &PlannedAnnotation) -> String {
+    a.annotation["timestamp"].as_str().unwrap_or("").to_string()
 }
 
 #[derive(Debug)]
@@ -284,17 +327,25 @@ pub fn push(
         ));
     }
 
-    // Record the push's effect, so reading these back changes nothing.
-    let pushed: BTreeSet<&str> = plan
+    // Record the push's effect, so reading these back changes nothing: the
+    // entry now lives in calibre, and its anchor holds the timestamp calibre
+    // holds.
+    let written: BTreeMap<&str, &str> = plan
         .books
         .iter()
-        .flat_map(|b| b.entry_ids.iter().map(String::as_str))
+        .flat_map(|b| b.timestamps.iter().map(|(id, t)| (id.as_str(), t.as_str())))
         .collect();
     for b in &mut archive.books {
         for e in &mut b.data.entries {
-            if pushed.contains(e.id.as_str()) && !e.sources.iter().any(|s| s == "calibre") {
+            let Some(t) = written.get(e.id.as_str()) else {
+                continue;
+            };
+            if !e.sources.iter().any(|s| s == "calibre") {
                 e.sources.push("calibre".into());
                 e.sources.sort();
+            }
+            if let Some(Value::Object(anchor)) = e.calibre.get_mut(WRITABLE_FORMAT) {
+                anchor.insert("timestamp".into(), json!(t));
             }
         }
     }

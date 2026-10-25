@@ -343,3 +343,33 @@ fn one_highlight_on_two_formats_is_one_entry_with_two_anchors() {
     );
     assert_eq!(check(archive.path()), vec![]);
 }
+
+#[test]
+fn calibres_timestamp_never_overwrites_a_creation_date() {
+    // A pushed highlight later bumped in calibre (edited, or re-pushed with a
+    // newer timestamp): calibre's timestamp says when it last changed, not when
+    // it was made.
+    let archive = tempfile::tempdir().unwrap();
+    let text = "Pruning is a conversation with next year, conducted in absence.";
+    let clippings = format!(
+        "The Orchard Ledger (Penn, Mara)\n- Your Highlight at location 30-31 | Added on Sunday, 4 January 2026 10:00:00\n\n{text}\n==========\n"
+    );
+    ingest_clippings(&clippings, archive.path(), &Config::default(), false).unwrap();
+    let mut a = Archive::load(archive.path()).unwrap();
+    a.books[0].data.book.calibre_uuid = Some(BOOK_UUID.into());
+    let id = a.books[0].data.entries[0].id.clone();
+    let created = a.books[0].data.entries[0].created.clone();
+    a.save(false).unwrap();
+
+    let mut later = highlight(&id, text, Some("Added in calibre."));
+    later["timestamp"] = json!("2026-09-01T00:00:00.000Z");
+    let lib = library(&[(7, "EPUB", "local", "viewer", later)]);
+    ingest_calibre(lib.path(), archive.path(), &[], false).unwrap();
+    let e = &Archive::load(archive.path()).unwrap().books[0].data.entries[0];
+    assert_eq!(e.created, created);
+    assert_eq!(
+        e.note.as_deref(),
+        Some("Added in calibre."),
+        "content still comes from calibre"
+    );
+}

@@ -40,6 +40,13 @@ impl SourceBlock {
         }
     }
 
+    /// Whether the source's date is a creation date. calibre's `timestamp` is
+    /// when an annotation last changed (its viewer bumps it on every edit and
+    /// syncs by it), so it only dates an entry calibre itself creates.
+    fn dates_creation(&self) -> bool {
+        matches!(self, SourceBlock::Kindle(_))
+    }
+
     fn store(&self, e: &mut Entry) {
         match self {
             SourceBlock::Kindle(k) => e.kindle = Some(k.clone()),
@@ -184,6 +191,7 @@ fn create(incoming: &Incoming) -> Entry {
     };
     add_aliases(&mut e, &incoming.ids);
     update(&mut e, incoming);
+    e.created = incoming.created.clone();
     e
 }
 
@@ -196,7 +204,9 @@ fn update(e: &mut Entry, incoming: &Incoming) {
     }
     e.text = incoming.text.clone();
     e.note = incoming.note.clone();
-    e.created = incoming.created.clone();
+    if incoming.block.dates_creation() {
+        e.created = incoming.created.clone();
+    }
     let source = incoming.block.source().to_string();
     if !e.sources.contains(&source) {
         e.sources.push(source);

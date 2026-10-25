@@ -214,13 +214,56 @@ fn everything_else_in_calibre_is_kept_and_ours_replaced_in_place() {
 
 #[test]
 fn a_book_already_matching_the_archive_is_not_written() {
-    let arch = archive(vec![mine()]);
-    let a = Archive::load(arch.path()).unwrap();
+    // As after a push: the anchor records the timestamp calibre holds.
+    let mut recorded = mine();
+    recorded.calibre.get_mut("EPUB").unwrap()["timestamp"] = json!("2026-01-04T08:00:00.000Z");
+    let a = Archive::load(archive(vec![recorded]).path()).unwrap();
     let first = plan(library(&[]).path(), &a, &PushOptions::default()).unwrap();
     let pushed = first.books[0].annotations[0].annotation.clone();
     let p = plan(library(&[pushed]).path(), &a, &PushOptions::default()).unwrap();
     assert!(p.books.is_empty());
     assert_eq!(p.up_to_date, 1);
+}
+
+#[test]
+fn a_changed_highlight_gets_a_newer_timestamp_than_calibres_copy() {
+    // calibre's viewer keeps whichever copy is newer, so an update with the
+    // same timestamp would lose to a copy it has cached.
+    let stale = json!({"type": "highlight", "uuid": MINE, "timestamp": "2026-01-04T08:00:00.000Z",
+        "start_cfi": "/2/4/2/1:0", "end_cfi": "/2/4/2/1:30", "highlighted_text": "Old wording."});
+    let mut recorded = mine();
+    recorded.calibre.get_mut("EPUB").unwrap()["timestamp"] = json!("2026-01-04T08:00:00.000Z");
+    let p = plan(
+        library(&[stale]).path(),
+        &Archive::load(archive(vec![recorded]).path()).unwrap(),
+        &PushOptions::default(),
+    )
+    .unwrap();
+    let a = &p.books[0].annotations[0];
+    assert!(a.timestamp > 1.5, "newer than calibre's stored copy");
+    let written = a.annotation["timestamp"].as_str().unwrap();
+    assert!(written > "2026-01-04T08:00:00.000Z", "{written}");
+    assert_eq!(
+        p.books[0].timestamps[MINE], written,
+        "recorded back into the anchor"
+    );
+}
+
+#[test]
+fn a_highlight_pushed_without_a_recorded_timestamp_is_bumped_once() {
+    // Pushed by an earlier version: calibre's content matches, but a viewer
+    // may hold an older copy with the same timestamp.
+    let a = Archive::load(archive(vec![mine()]).path()).unwrap();
+    let same = plan(library(&[]).path(), &a, &PushOptions::default())
+        .unwrap()
+        .books[0]
+        .annotations[0]
+        .annotation
+        .clone();
+    let p = plan(library(std::slice::from_ref(&same)).path(), &a, &PushOptions::default()).unwrap();
+    let b = &p.books[0];
+    assert_eq!((b.updated, b.unchanged), (1, 0));
+    assert_ne!(b.annotations[0].annotation["timestamp"], same["timestamp"]);
 }
 
 #[test]
@@ -331,6 +374,14 @@ fn push_then_read_back_is_a_zero_diff_round_trip_with_calibre() {
         mine_now.sources,
         vec!["calibre", "kindle"],
         "push records its effect"
+    );
+    assert!(
+        mine_now.calibre["EPUB"]["timestamp"].is_string(),
+        "and the timestamp calibre now holds"
+    );
+    assert_eq!(
+        mine_now.created.as_deref(),
+        Some("2026-01-04T08:00:00.000Z")
     );
 
     let db = Connection::open(lib.path().join("metadata.db")).unwrap();
