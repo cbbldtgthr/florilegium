@@ -19,30 +19,6 @@ does.
 
 ## M1: Core — clippings to archive (no calibre needed)
 
-### Clippings parser
-Parse `My Clippings.txt` into an ordered list of raw entries, each tagged with
-its file index and starting line number.
-- Entries are split on a line of exactly `==========`. Strip a leading BOM
-  (`﻿`) from the file **and from every title line** (real files carry BOMs
-  mid-file, which otherwise split one book into two). Accept `\r\n`.
-- Header shapes seen in practice: `- Your Highlight on page N | location N-N |
-  Added on …`, `- Your Highlight at location N-N | Added on …`, `- Your Note on
-  page N | location N | …`, `- Your Highlight on page N-N | …` (page-only), and
-  bookmark equivalents. Locations and pages may be single numbers or ranges.
-- Title line is `Title (Author)`; the author is the **last** parenthesised
-  group, may hold several names split by `;` or `,`, and may be absent.
-- Drop bookmarks and "clipping limit" stubs, counting each.
-- Never skip silently: an unparseable block becomes a warning with its line
-  number. Exit non-zero only on I/O errors.
-- All keywords (`Highlight`, `Note`, `Bookmark`, `Added on`, `location`, `page`,
-  separator) and an ordered list of `strptime`-style date formats come from
-  config, defaulting to English (`%A, %d %B %Y %H:%M:%S`). No fuzzy date
-  parsing. An unmatched date is a warning and `created: null`.
-- Dates have no timezone: attach the configured Kindle zone (default
-  `Africa/Johannesburg`) and store UTC. Keep the raw string as
-  `kindle.raw_added_on`.
-- File order, not the parsed date, is authoritative for recency.
-
 ### Supersede replay (highlights)
 Kindle records an edit (extend, trim, redo) as a new appended entry. For
 overlapping highlights only the latest is kept. This logic exists **only**
@@ -146,7 +122,9 @@ default output.
 
 ### `ingest-clippings` command and change report
 `annot-archive ingest-clippings CLIPPINGS --archive DIR [--dry-run] [--config
-PATH]` re-processes the whole file each run. Prints per-book counts (created,
+PATH]` re-processes the whole file each run. Loads the parser's locale settings
+(keywords, date formats, date word translations, Kindle timezone) from
+`config.toml`, falling back to the English defaults. Prints per-book counts (created,
 updated, unchanged, merged, tombstone-matched), warnings (unparsed blocks,
 orphan notes, bad dates), and a prominent list of `|M| ≥ 2` merges.
 Acceptance: a second run with the same file changes zero bytes; appending
@@ -161,8 +139,8 @@ Kindle keeps its original ID.
   ID and the entry as JSON or text; report tombstones.
 
 ### Synthetic fixtures
-A synthetic clippings file (invented books and prose) covering every parser,
-replay and note case above. Nothing real, ever.
+Extend `tests/fixtures/kindle/` with invented clippings covering every replay
+and note case above. Nothing real, ever.
 
 ---
 

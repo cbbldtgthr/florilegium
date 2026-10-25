@@ -5,5 +5,6 @@ edition = "2024"
 
 [dependencies]
 base64 = "0.23.1"
+jiff = { version = "0.2.38", default-features = false, features = ["std", "tzdb-bundle-always"] }
 unicode-normalization = "0.1.26"
 uuid = { version = "1.29.0", default-features = false, features = ["v5"] }
