@@ -19,44 +19,13 @@ does.
 
 ## M1: Core — clippings to archive (no calibre needed)
 
-### Archive format and deterministic writer
-One JSON file per book, named `<slug>--<short-id>.json`, name assigned at
-creation and never changed. Files are found by the identity fields inside
-them, never by name.
-
-```json
-{
-  "schema_version": 1,
-  "book": {
-    "title": "Display Title",
-    "authors": ["Author Name"],
-    "kindle_titles": ["Title Of The Book (Author Name)"],
-    "calibre_uuid": null
-  },
-  "entries": [{
-    "id": "…", "aliases": [], "type": "highlight",
-    "text": "…", "note": null,
-    "created": "2026-10-23T13:50:12.000Z",
-    "deleted": false, "sources": ["kindle"],
-    "kindle": {"location": [1234, 1236], "page": 57, "raw_added_on": "…"},
-    "calibre": null
-  }]
-}
-```
-- A clipping joins the file whose `kindle_titles` produce the same title key.
-- `calibre_uuid` is calibre's **book** UUID (stable across library rebuilds,
-  unlike numeric book IDs); null until matched.
-- `created` uses calibre's exact timestamp text, `YYYY-MM-DDTHH:MM:SS.mmmZ`,
-  so a calibre round trip is lossless.
-- Serialisation: sorted keys, 2-space indent, UTF-8 unescaped, LF, one
-  trailing newline. Entries sorted by `(created, nulls last; id)`; `aliases`
-  and `sources` sorted and de-duplicated. A file is rewritten only if its bytes
-  change.
-- Alongside books: a user-edited `book-overrides.json` (Kindle title key →
-  calibre book UUID, plus optional per-book total locations) and an optional
-  `config.toml`.
-
 ### Identity merge into the archive
+Each replayed book joins the archive file whose `kindle_titles` share its
+`key_v1` title key; otherwise a new file is added (named from that key), with
+`title` from the clipping's title, `authors` from its author group split on
+`;` (a comma is ambiguous: `Vell, Orrin` is one person), and every title line
+seen added to `kindle_titles`.
+
 For each incoming cluster, `U = {id} ∪ aliases`; `M` = archive entries in the
 same book (live or tombstoned) whose `{id} ∪ aliases` intersects `U`.
 - `|M| = 0`: create.
@@ -141,7 +110,9 @@ to move entries and union keys.
 ## M3: derive CFIs for Kindle highlights
 
 ### Match archive books to calibre books
-Precedence: existing `calibre_uuid`; `book-overrides.json`; fuzzy title and
+Precedence: existing `calibre_uuid`; `book-overrides.json` in the archive
+(user-edited: Kindle title key → calibre book UUID, plus optional per-book
+total locations); fuzzy title and
 author match (normalise case, punctuation, leading articles, subtitle after a
 colon, series prefix) accepted only above a threshold with a clear margin over
 the runner-up; else `unmatched` with `reason: "no-calibre-book"`, logged once
