@@ -168,12 +168,15 @@ impl LoadedBook {
 pub struct Archive {
     pub dir: PathBuf,
     pub books: Vec<LoadedBook>,
+    /// Files of books removed since loading, deleted on save.
+    removed: Vec<String>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct SaveReport {
     pub created: Vec<String>,
     pub updated: Vec<String>,
+    pub removed: Vec<String>,
     pub unchanged: usize,
 }
 
@@ -215,7 +218,17 @@ impl Archive {
         Ok(Archive {
             dir: dir.to_path_buf(),
             books,
+            removed: Vec::new(),
         })
+    }
+
+    /// Take a book out of the archive; its file is deleted on save.
+    pub fn remove_book(&mut self, index: usize) -> LoadedBook {
+        let b = self.books.remove(index);
+        if b.on_disk.is_some() {
+            self.removed.push(b.file_name.clone());
+        }
+        b
     }
 
     /// Add a book, assigning its file name once. `name_key` should identify
@@ -265,6 +278,17 @@ impl Archive {
                 write_atomically(&self.dir.join(&b.file_name), &bytes)?;
                 b.on_disk = Some(bytes);
             }
+        }
+        for name in &self.removed {
+            report.removed.push(name.clone());
+            if !dry_run {
+                let path = self.dir.join(name);
+                fs::remove_file(&path)
+                    .map_err(|e| format!("cannot delete {}: {e}", path.display()))?;
+            }
+        }
+        if !dry_run {
+            self.removed.clear();
         }
         Ok(report)
     }

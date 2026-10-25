@@ -210,6 +210,9 @@ pub struct CalibreIngestReport {
     pub removed: usize,
     /// Viewer highlights read, by book format.
     pub formats: BTreeMap<String, usize>,
+    /// (calibre file, Kindle-only file) pairs whose titles are the same: likely
+    /// one book, for `merge-books`. Real book matching comes with deriving CFIs.
+    pub possible_duplicates: Vec<(String, String)>,
     pub warnings: Vec<String>,
     pub saved: SaveReport,
 }
@@ -303,8 +306,27 @@ pub fn ingest_calibre(
         reports.push(report);
     }
 
+    let mut possible_duplicates = Vec::new();
+    for c in archive
+        .books
+        .iter()
+        .filter(|b| b.data.book.calibre_uuid.is_some())
+    {
+        let title = key_v1(&c.data.book.title);
+        for k in archive
+            .books
+            .iter()
+            .filter(|b| b.data.book.calibre_uuid.is_none())
+        {
+            if key_v1(&k.data.book.title) == title {
+                possible_duplicates.push((c.file_name.clone(), k.file_name.clone()));
+            }
+        }
+    }
+
     let saved = archive.save(dry_run)?;
     Ok(CalibreIngestReport {
+        possible_duplicates,
         books: reports,
         removed,
         formats,

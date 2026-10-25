@@ -13,6 +13,7 @@ use annot_archive::ingest::{
 };
 use annot_archive::kindle::parse::{ParseConfig, RawClipping, parse};
 use annot_archive::kindle::replay::{ReplayConfig, replay};
+use annot_archive::merge_books::merge_books;
 use annot_archive::resolve::{Lookup, Resolved, resolve};
 
 #[derive(Parser)]
@@ -73,6 +74,20 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Join two book files that are one book: KEEP gains ABSORB's entries and
+    /// keys, and ABSORB's file is deleted
+    MergeBooks {
+        /// Book file that survives (keeps its name, title and authors)
+        keep: String,
+        /// Book file whose entries and keys move into KEEP
+        absorb: String,
+        /// Archive directory
+        #[arg(long)]
+        archive: PathBuf,
+        /// Report what would change without writing anything
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Validate the archive; exits 1 if anything is wrong
     Check {
         /// Archive directory
@@ -121,6 +136,12 @@ fn main() -> ExitCode {
             &book,
             dry_run,
         ),
+        Command::MergeBooks {
+            keep,
+            absorb,
+            archive,
+            dry_run,
+        } => run_merge_books(&archive, &keep, &absorb, dry_run),
         Command::Check { archive } => run_check(&archive),
         Command::Resolve {
             id,
@@ -209,7 +230,38 @@ fn print_calibre_ingest(r: &CalibreIngestReport, dry_run: bool) {
             println!("  {w}");
         }
     }
+    if !r.possible_duplicates.is_empty() {
+        println!("\nPossibly the same book (same title); merge each pair with merge-books if so:");
+        for (calibre, kindle) in &r.possible_duplicates {
+            println!("  just merge-books {calibre} {kindle} <archive>");
+        }
+    }
     println!("\n(skipped {} highlights deleted in calibre)", r.removed);
+}
+
+fn run_merge_books(archive: &Path, keep: &str, absorb: &str, dry_run: bool) -> ExitCode {
+    match merge_books(archive, keep, absorb, dry_run) {
+        Ok(r) => {
+            let verb = if dry_run { "would move" } else { "moved" };
+            println!(
+                "{verb} {} entries from {} into {}",
+                r.moved_entries, r.absorbed, r.kept
+            );
+            for t in &r.added_kindle_titles {
+                println!("  kindle title added: {t}");
+            }
+            if let Some(u) = &r.took_calibre_uuid {
+                println!("  calibre book taken over: {u}");
+            }
+            let verb = if dry_run { "would delete" } else { "deleted" };
+            println!("  {verb} {}", r.saved.removed.join(", "));
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn run_check(archive: &Path) -> ExitCode {

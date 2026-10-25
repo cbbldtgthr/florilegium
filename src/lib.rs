@@ -6,5 +6,6 @@ pub mod id;
 pub mod ingest;
 pub mod kindle;
 pub mod merge;
+pub mod merge_books;
 pub mod norm;
 pub mod resolve;

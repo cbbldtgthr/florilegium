@@ -18,15 +18,6 @@ does.
 
 ---
 
-## M2: calibre read
-
-### Two files, one calibre book
-If a Kindle-only file and a calibre-only file turn out to be the same book,
-never merge silently: report it, and provide `merge-books A B --archive DIR`
-to move entries and union keys.
-
----
-
 ## M3: derive CFIs for Kindle highlights
 
 ### Match archive books to calibre books
@@ -36,7 +27,10 @@ total locations); fuzzy title and
 author match (normalise case, punctuation, leading articles, subtitle after a
 colon, series prefix) accepted only above a threshold with a clear margin over
 the runner-up; else `unmatched` with `reason: "no-calibre-book"`, logged once
-per book. Only the EPUB format is used; a book without one is
+per book. If the matched calibre book already has its own archive file
+(from `ingest-calibre`), do not set `calibre_uuid` on the Kindle file, which
+would make two files claim one book: report the pair for `merge-books`
+instead. Only the EPUB format is used; a book without one is
 `reason: "no-epub"`.
 
 ### Text locator

@@ -41,6 +41,11 @@ inspect-calibre library book:
 ingest-calibre archive *args:
     a="$1"; shift 1; cargo run --quiet -- ingest-calibre --archive "$a" "$@"
 
+# Join two book files that are one book: KEEP gains ABSORB's entries; add `--dry-run` to only report
+[positional-arguments]
+merge-books keep absorb archive *args:
+    k="$1"; b="$2"; a="$3"; shift 3; cargo run --quiet -- merge-books "$k" "$b" --archive "$a" "$@"
+
 # Validate an archive directory; fails if anything is wrong
 check archive:
     cargo run --quiet -- check --archive "{{archive}}"
