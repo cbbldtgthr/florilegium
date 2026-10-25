@@ -4,10 +4,13 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
+use annot_archive::calibre::db::Library;
 use annot_archive::check::check;
 use annot_archive::config::Config;
 use annot_archive::id::{EntryKind, key_v1};
-use annot_archive::ingest::{IngestReport, ingest_clippings};
+use annot_archive::ingest::{
+    BookReport, CalibreIngestReport, IngestReport, ingest_calibre, ingest_clippings,
+};
 use annot_archive::kindle::parse::{ParseConfig, RawClipping, parse};
 use annot_archive::kindle::replay::{ReplayConfig, replay};
 use annot_archive::resolve::{Lookup, Resolved, resolve};
@@ -39,6 +42,33 @@ enum Command {
         /// Settings file; defaults to config.toml in the archive, if present
         #[arg(long)]
         config: Option<PathBuf>,
+        /// Report what would change without writing anything
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Dump a calibre book's raw annotation rows as JSON, without writing anything
+    InspectCalibre {
+        /// calibre library root (the folder holding metadata.db)
+        #[arg(long)]
+        library: PathBuf,
+        /// calibre's numeric book ID
+        #[arg(long)]
+        book: i64,
+    },
+    /// Read calibre's viewer highlights (EPUB) into the archive by identity
+    IngestCalibre {
+        /// Archive directory: a folder of its own, in a private repository
+        #[arg(long)]
+        archive: PathBuf,
+        /// calibre library root; defaults to [calibre] library in config.toml
+        #[arg(long)]
+        library: Option<PathBuf>,
+        /// Settings file; defaults to config.toml in the archive, if present
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Only these calibre book IDs (repeatable)
+        #[arg(long)]
+        book: Vec<i64>,
         /// Report what would change without writing anything
         #[arg(long)]
         dry_run: bool,
@@ -77,6 +107,20 @@ fn main() -> ExitCode {
             config,
             dry_run,
         } => run_ingest(&clippings, &archive, config.as_deref(), dry_run),
+        Command::InspectCalibre { library, book } => run_inspect_calibre(&library, book),
+        Command::IngestCalibre {
+            archive,
+            library,
+            config,
+            book,
+            dry_run,
+        } => run_ingest_calibre(
+            &archive,
+            library.as_deref(),
+            config.as_deref(),
+            &book,
+            dry_run,
+        ),
         Command::Check { archive } => run_check(&archive),
         Command::Resolve {
             id,
@@ -85,6 +129,87 @@ fn main() -> ExitCode {
             show_deleted,
         } => run_resolve(&id, &archive, json, show_deleted),
     }
+}
+
+fn run_inspect_calibre(library: &Path, book: i64) -> ExitCode {
+    let rows = Library::open(library).and_then(|lib| lib.annotations(&[book]));
+    match rows {
+        Ok(rows) => {
+            let out: Vec<serde_json::Value> = rows
+                .iter()
+                .map(|r| {
+                    serde_json::json!({
+                        "id": r.id, "book": r.book, "format": r.format,
+                        "user_type": r.user_type, "user": r.user,
+                        "annot_type": r.annot_type, "annot_id": r.annot_id,
+                        "annot_data": match &r.data { Ok(v) => v.clone(), Err(e) => serde_json::json!({"unparseable": e}) },
+                    })
+                })
+                .collect();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&out).expect("values serialise")
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_ingest_calibre(
+    archive: &Path,
+    library: Option<&Path>,
+    config: Option<&Path>,
+    books: &[i64],
+    dry_run: bool,
+) -> ExitCode {
+    let result = Config::load(config, archive).and_then(|config| {
+        let library = library
+            .map(Path::to_path_buf)
+            .or(config.calibre.library)
+            .ok_or("no calibre library: pass --library or set [calibre] library in config.toml")?;
+        ingest_calibre(&library, archive, books, dry_run)
+    });
+    match result {
+        Ok(r) => {
+            print_calibre_ingest(&r, dry_run);
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn print_calibre_ingest(r: &CalibreIngestReport, dry_run: bool) {
+    print_book_reports(&r.books, &r.saved, dry_run);
+    let read: Vec<String> = r.formats.iter().map(|(f, n)| format!("{n} {f}")).collect();
+    if !read.is_empty() {
+        println!("\nRead viewer highlights: {}", read.join(", "));
+    }
+    let not_writable: usize = r
+        .formats
+        .iter()
+        .filter(|(f, _)| *f != annot_archive::calibre::WRITABLE_FORMAT)
+        .map(|(_, n)| n)
+        .sum();
+    if not_writable > 0 {
+        println!(
+            "  {not_writable} are on formats other than {}: archived, but never written back to calibre.",
+            annot_archive::calibre::WRITABLE_FORMAT
+        );
+    }
+    if !r.warnings.is_empty() {
+        println!("\nWarnings ({}):", r.warnings.len());
+        for w in &r.warnings {
+            println!("  {w}");
+        }
+    }
+    println!("\n(skipped {} highlights deleted in calibre)", r.removed);
 }
 
 fn run_check(archive: &Path) -> ExitCode {
@@ -213,54 +338,7 @@ fn run_ingest(clippings: &Path, archive: &Path, config: Option<&Path>, dry_run: 
 }
 
 fn print_ingest(r: &IngestReport, dry_run: bool) {
-    let sum =
-        |f: fn(&annot_archive::ingest::BookReport) -> usize| r.books.iter().map(f).sum::<usize>();
-    let merges: Vec<_> = r
-        .books
-        .iter()
-        .flat_map(|b| b.merges.iter().map(move |m| (b, m)))
-        .collect();
-    println!(
-        "{} books: {} entries created, {} updated, {} unchanged, {} merged, {} matched tombstones",
-        r.books.len(),
-        sum(|b| b.created),
-        sum(|b| b.updated),
-        sum(|b| b.unchanged),
-        merges.len(),
-        sum(|b| b.tombstone_matched),
-    );
-    let verb = if dry_run { "would write" } else { "wrote" };
-    println!(
-        "files: {verb} {} new, {} changed; {} unchanged",
-        r.saved.created.len(),
-        r.saved.updated.len(),
-        r.saved.unchanged
-    );
-
-    let changed: Vec<_> = r.books.iter().filter(|b| b.changed()).collect();
-    if !changed.is_empty() {
-        println!("\nChanged books:");
-        for b in changed {
-            let new = if b.new_file { " (new file)" } else { "" };
-            println!(
-                "  +{} ~{} ={} merged {} tombstone {}  {}{new}",
-                b.created,
-                b.updated,
-                b.unchanged,
-                b.merges.len(),
-                b.tombstone_matched,
-                b.file_name
-            );
-        }
-    }
-
-    if !merges.is_empty() {
-        println!("\n!! Entries merged because a clipping joined them (review these):");
-        for (b, (id, absorbed)) in merges {
-            println!("  {id} absorbed {} in {}", absorbed.join(", "), b.file_name);
-        }
-    }
-
+    print_book_reports(&r.books, &r.saved, dry_run);
     let p = &r.parsed;
     let warnings =
         p.warnings.len() + r.orphan_notes.len() + r.joined_notes.len() + r.warnings.len();
@@ -449,4 +527,55 @@ fn describe(c: &RawClipping) -> String {
     };
     let text: String = c.text.replace('\n', " / ").chars().take(90).collect();
     format!("{:22} {}  {kind}{text}", pos, date)
+}
+
+fn print_book_reports(
+    books: &[BookReport],
+    saved: &annot_archive::archive::SaveReport,
+    dry_run: bool,
+) {
+    let sum = |f: fn(&BookReport) -> usize| books.iter().map(f).sum::<usize>();
+    let merges: Vec<_> = books
+        .iter()
+        .flat_map(|b| b.merges.iter().map(move |m| (b, m)))
+        .collect();
+    println!(
+        "{} books: {} entries created, {} updated, {} unchanged, {} merged, {} matched tombstones",
+        books.len(),
+        sum(|b| b.created),
+        sum(|b| b.updated),
+        sum(|b| b.unchanged),
+        merges.len(),
+        sum(|b| b.tombstone_matched),
+    );
+    let verb = if dry_run { "would write" } else { "wrote" };
+    println!(
+        "files: {verb} {} new, {} changed; {} unchanged",
+        saved.created.len(),
+        saved.updated.len(),
+        saved.unchanged
+    );
+
+    let changed: Vec<_> = books.iter().filter(|b| b.changed()).collect();
+    if !changed.is_empty() {
+        println!("\nChanged books:");
+        for b in changed {
+            let new = if b.new_file { " (new file)" } else { "" };
+            println!(
+                "  +{} ~{} ={} merged {} tombstone {}  {}{new}",
+                b.created,
+                b.updated,
+                b.unchanged,
+                b.merges.len(),
+                b.tombstone_matched,
+                b.file_name
+            );
+        }
+    }
+    if !merges.is_empty() {
+        println!("\n!! Entries merged because an incoming entry joined them (review these):");
+        for (b, (id, absorbed)) in merges {
+            println!("  {id} absorbed {} in {}", absorbed.join(", "), b.file_name);
+        }
+    }
 }

@@ -15,8 +15,9 @@ files kept in a private git repository. The point is the identifier. Each
 highlight gets an ID once, and that ID never changes, so a note in Obsidian or a
 blog post can cite the passage instead of copy-pasting it, and the citation
 still resolves after re-reads, edits, device resets and library rebuilds. The
-archive also feeds highlights back into calibre, so its "Browse annotations"
-becomes one place to see everything.
+archive also feeds highlights back into calibre, not as a second record but as
+a reading interface: "Browse annotations" shows them all in one place, and the
+viewer shows each one in the context of the text around it.
 
 ## Principles
 
@@ -50,8 +51,10 @@ identity or the archive format may assume there are only two.
 
 ## Constraints
 
-- Books are EPUB. Convert anything else to EPUB in calibre yourself before
-  importing highlights; the tool never converts or modifies a book.
+- calibre is only ever written to on EPUB. Highlights on any format are read
+  and archived, but only EPUB books get highlights written back; convert a book
+  to EPUB in calibre yourself to see its Kindle highlights there. The tool never
+  converts or modifies a book.
 - No GUI, no syncing back to the Kindle, and no automatic detection of deleted
   highlights. You mark a deletion by hand in the archive and review it in the
   diff.

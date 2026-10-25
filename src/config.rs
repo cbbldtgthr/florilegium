@@ -1,5 +1,5 @@
 //! `config.toml`: optional settings, every key defaulting to an English
-//! Kindle in Johannesburg. Unknown keys are errors, so a typo never silently
+//! Kindle in Johannesburg; the calibre library has no default. Unknown keys are errors, so a typo never silently
 //! falls back to a default.
 
 use std::collections::BTreeMap;
@@ -17,6 +17,16 @@ pub const CONFIG_FILE: &str = "config.toml";
 pub struct Config {
     #[serde(default)]
     pub kindle: KindleConfig,
+    #[serde(default)]
+    pub calibre: CalibreConfig,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CalibreConfig {
+    /// Library root (the folder holding `metadata.db`), used when no
+    /// `--library` is given.
+    pub library: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Default, Deserialize)]

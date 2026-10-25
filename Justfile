@@ -32,6 +32,15 @@ inspect-clippings clippings *args:
 ingest-clippings clippings archive *args:
     c="$1"; a="$2"; shift 2; cargo run --quiet -- ingest-clippings "$c" --archive "$a" "$@"
 
+# Dump one calibre book's raw annotation rows as JSON, read-only
+inspect-calibre library book:
+    cargo run --quiet -- inspect-calibre --library "{{library}}" --book "{{book}}"
+
+# Read calibre's viewer highlights into an archive; add `--library PATH`, `--book ID` or `--dry-run`
+[positional-arguments]
+ingest-calibre archive *args:
+    a="$1"; shift 1; cargo run --quiet -- ingest-calibre --archive "$a" "$@"
+
 # Validate an archive directory; fails if anything is wrong
 check archive:
     cargo run --quiet -- check --archive "{{archive}}"

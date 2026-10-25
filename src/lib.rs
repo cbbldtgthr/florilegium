@@ -1,4 +1,5 @@
 pub mod archive;
+pub mod calibre;
 pub mod check;
 pub mod config;
 pub mod id;

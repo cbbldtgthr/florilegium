@@ -20,37 +20,6 @@ does.
 
 ## M2: calibre read
 
-### Read annotations through SQLite
-Open `metadata.db` **read-only** (safe while calibre runs). Verified against
-calibre 8.16.2 and a real library:
-- Table `annotations(id, book, format, user_type, user, timestamp, annot_id,
-  annot_type, annot_data, searchable_text)`; viewer highlights are
-  `user_type='local'`, `user='viewer'`; `annot_id` equals the JSON `uuid`.
-- Highlight JSON keys: `type, uuid, timestamp, start_cfi, end_cfi,
-  highlighted_text, notes, style, spine_name, spine_index, toc_family_titles`.
-  `style` is either builtin `{"kind":"color","type":"builtin","which":"yellow"}`
-  or custom `{"kind":"color","type":"custom","friendly_name","light","dark"}`.
-- Removed annotations are stubs `{"removed": true, "timestamp", "type",
-  "uuid"}`: ignore them (no deletion propagation).
-- Content-server annotations (`user_type='web'`) are ignored; the HTTP API
-  cannot see viewer highlights, so it is not used.
-- The book's UUID and EPUB path come from `books` and `data`.
-
-### `ingest-calibre`
-`ingest-calibre --library PATH --archive DIR [--book ID…]`. For EPUB highlight
-annotations: find the book file by `calibre_uuid` (create one if absent, with
-empty `kindle_titles`); match entries by ID or alias only; `text`, `note`,
-`created` and the `calibre` block come from calibre with `match: "native"`;
-`sources` gains `calibre`; the `kindle` block is untouched. `check` gains: a `native` entry whose text no longer matches the calibre
-highlight's text (e.g. after a Kindle ingest overwrote it). Store calibre's
-values verbatim so a later push → read-back produces no diff. Old CFIs that
-current calibre can no longer decode (seen on 2020-era highlights) are stored
-as-is.
-
-### `inspect-calibre`
-`inspect-calibre --library PATH --book ID` dumps a book's raw annotation rows
-as JSON, for debugging and golden samples.
-
 ### Two files, one calibre book
 If a Kindle-only file and a calibre-only file turn out to be the same book,
 never merge silently: report it, and provide `merge-books A B --archive DIR`
@@ -135,7 +104,8 @@ the generator must reproduce.
 `push-calibre --library PATH --archive DIR [--dry-run] [--include
 approximate,ambiguous]`.
 - Eligible by default: live highlight entries with `exact`, `manual` or
-  `native` matches. `approximate`/`ambiguous` need `--include`. Never
+  `native` matches, on EPUB only: a `native` entry read from another format
+  (AZW3, MOBI) stays archive-only. `approximate`/`ambiguous` need `--include`. Never
   `unmatched`, pending, orphan notes or tombstones.
 - Mechanism: calibre's merge keeps the newer timestamp and, on a tie, the
   existing annotation, so a plain merge cannot update text. Instead, read the
@@ -150,6 +120,18 @@ approximate,ambiguous]`.
   Refuse to write without a flag confirming calibre is closed (the GUI and
   viewer hold their own state and rewrite a book's whole annotation list when
   they save). `--dry-run` prints exactly what would change.
+- Push records its own effect: every entry it writes gains `calibre` in
+  `sources` in the same run, so reading it back changes nothing.
 - Acceptance: pushing twice is a no-op; push then `ingest-calibre` gives a
   zero-byte archive diff; deleting calibre annotations and re-pushing restores
   them with the same IDs.
+
+### Fields edited on both sides
+Each source overwrites the fields it supplies (last ingest wins). Once an
+entry lives in both Kindle and calibre, editing its note in calibre makes the
+calibre ingest bring the edit in and the next Kindle ingest put the Kindle
+version back: two diff hunks every cycle, not a one-off review. Decide
+between: `locked_fields` on an entry (the archive keeps those fields; no
+source overwrites them), or overwriting a field only when that source's own
+copy changed since its last ingest (needs the last-seen value per source,
+e.g. in the source block).

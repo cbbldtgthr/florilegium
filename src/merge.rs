@@ -6,7 +6,7 @@
 
 use std::collections::BTreeSet;
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::archive::{BookFile, Entry, EntryType, KindleBlock};
 
@@ -27,18 +27,22 @@ pub struct Incoming {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SourceBlock {
     Kindle(KindleBlock),
+    /// calibre's annotation plus the tool's own keys; see `calibre::incoming`.
+    Calibre(Map<String, Value>),
 }
 
 impl SourceBlock {
     fn source(&self) -> &'static str {
         match self {
             SourceBlock::Kindle(_) => "kindle",
+            SourceBlock::Calibre(_) => "calibre",
         }
     }
 
     fn store(&self, e: &mut Entry) {
         match self {
             SourceBlock::Kindle(k) => e.kindle = Some(k.clone()),
+            SourceBlock::Calibre(c) => crate::calibre::store_block(e, c.clone()),
         }
     }
 }
