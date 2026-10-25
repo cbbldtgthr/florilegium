@@ -242,3 +242,113 @@ fn resolve_refuses_to_guess_between_claimants() {
         matches!(resolve(dir.path(), &aliases[0]).unwrap(), Lookup::Ambiguous(h) if h.len() == 2)
     );
 }
+
+use annot_archive::resolve::{CLIPPING_VERSION, Clipping, Resolver};
+
+fn clipping(dir: &Path, id: &str, show_deleted: bool) -> serde_json::Value {
+    let r = Resolver::new(dir).unwrap();
+    serde_json::to_value(Clipping::of(id, &r.lookup(id), show_deleted)).unwrap()
+}
+
+#[test]
+fn the_public_clipping_shape_is_pinned() {
+    let dir = archive_with_an_edit();
+    let (id, aliases) = ids(dir.path(), "The orchard keeps");
+    edit(dir.path(), |a| {
+        entry_mut(a, "The orchard keeps").calibre.insert(
+            "EPUB".into(),
+            serde_json::json!({"match": "exact", "toc_family_titles": ["Part One", "Rings"]}),
+        );
+    });
+    // Asked for by its old alias: the current ID comes back.
+    let c = clipping(dir.path(), &aliases[0], false);
+    assert_eq!(
+        c,
+        serde_json::json!({
+            "version": CLIPPING_VERSION,
+            "queried": aliases[0],
+            "status": "found",
+            "id": id,
+            "book": {"title": "The Orchard Ledger", "authors": ["Penn, Mara"], "calibre_uuid": null},
+            "chapter": ["Part One", "Rings"],
+            "type": "highlight",
+            "text": EXTENDED,
+            "note": null,
+            "created": "2026-01-04T08:04:00.000Z",
+            "location": [10, 12],
+            "page": null,
+            "claimants": [],
+        })
+    );
+}
+
+#[test]
+fn deleted_unknown_and_ambiguous_ids_have_a_status_and_no_guessed_content() {
+    let dir = archive_with_an_edit();
+    let (pruning, _) = ids(dir.path(), "Pruning");
+    edit(dir.path(), |a| entry_mut(a, "Pruning").deleted = true);
+    let deleted = clipping(dir.path(), &pruning, false);
+    assert_eq!(
+        (deleted["status"].as_str(), deleted["text"].is_null()),
+        (Some("deleted"), true)
+    );
+    assert_eq!(deleted["book"]["title"], "The Orchard Ledger");
+    assert!(
+        clipping(dir.path(), &pruning, true)["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("Pruning")
+    );
+
+    let unknown = clipping(dir.path(), "AAAAAAAAAAAAAAAAAAAAAA", false);
+    assert_eq!(
+        (unknown["status"].as_str(), unknown["id"].is_null()),
+        (Some("unknown"), true)
+    );
+
+    let (_, aliases) = ids(dir.path(), "The orchard keeps");
+    edit(dir.path(), |a| {
+        entry_mut(a, "Mulch").aliases.push(aliases[0].clone())
+    });
+    let ambiguous = clipping(dir.path(), &aliases[0], false);
+    assert_eq!(ambiguous["status"], "ambiguous");
+    assert_eq!(ambiguous["claimants"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn the_command_resolves_many_ids_one_json_line_each() {
+    let dir = archive_with_an_edit();
+    let (ledger, _) = ids(dir.path(), "The orchard keeps");
+    let (mulch, _) = ids(dir.path(), "Mulch");
+    let run = |args: &[&str]| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_annot-archive"))
+            .arg("resolve")
+            .args(args)
+            .env("ANNOT_ARCHIVE", dir.path())
+            .output()
+            .unwrap()
+    };
+
+    let out = run(&[&ledger, &mulch, "--json"]);
+    assert!(out.status.success());
+    let lines: Vec<serde_json::Value> = String::from_utf8(out.stdout)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 2);
+    assert_eq!(
+        (lines[0]["id"].as_str(), lines[1]["id"].as_str()),
+        (Some(ledger.as_str()), Some(mulch.as_str()))
+    );
+
+    // An unknown ID still gets its line, and makes the exit code 1.
+    let out = run(&[&ledger, "AAAAAAAAAAAAAAAAAAAAAA", "--json"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(String::from_utf8(out.stdout).unwrap().lines().count(), 2);
+
+    let out = run(&[&ledger, "--raw"]);
+    let raw: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(raw["entry"]["id"], ledger.as_str());
+    assert!(raw["entry"]["aliases"].is_array(), "the raw archive entry");
+}

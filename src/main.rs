@@ -20,7 +20,7 @@ use annot_archive::merge_books::merge_books;
 use annot_archive::push::{
     PushOptions, PushReport, calibre_debug, push, running_calibre_processes,
 };
-use annot_archive::resolve::{Lookup, Resolved, resolve};
+use annot_archive::resolve::{Clipping, Lookup, Resolved, Resolver};
 
 #[derive(Parser)]
 #[command(version, about = "A permanent, citable archive of reading highlights")]
@@ -156,22 +156,32 @@ enum Command {
     /// Look up an entry by ID or alias. Exits 0 if found, 2 if it was deleted,
     /// 1 if unknown
     Resolve {
-        /// An entry ID or any alias it has had
-        id: String,
+        /// Entry IDs, or any alias they have had (an ID may start with `-`)
+        #[arg(required = true)]
+        ids: Vec<String>,
         /// Archive directory
         #[arg(long, env = "ANNOT_ARCHIVE")]
         archive: PathBuf,
-        /// Print the result as JSON
-        #[arg(long)]
+        /// One JSON object per ID, per line, in the stable clipping shape
+        /// other tools integrate against
+        #[arg(long, conflicts_with = "raw")]
         json: bool,
-        /// Also print a deleted entry's content
+        /// One JSON line per ID holding the raw archive entry (internal; may
+        /// change between versions)
+        #[arg(long)]
+        raw: bool,
+        /// Also give a deleted entry's content
         #[arg(long)]
         show_deleted: bool,
     },
 }
 
 fn main() -> ExitCode {
-    match Cli::parse().command {
+    match Cli::parse_from(annot_archive::resolve::ids_after_double_dash(
+        std::env::args().collect(),
+    ))
+    .command
+    {
         Command::InspectClippings { clippings, book } => {
             inspect_clippings(&clippings, book.as_deref())
         }
@@ -250,11 +260,12 @@ fn main() -> ExitCode {
         },
         Command::Check { archive } => run_check(&archive),
         Command::Resolve {
-            id,
+            ids,
             archive,
             json,
+            raw,
             show_deleted,
-        } => run_resolve(&id, &archive, json, show_deleted),
+        } => run_resolve(&ids, &archive, json, raw, show_deleted),
     }
 }
 
@@ -602,66 +613,84 @@ fn run_check(archive: &Path) -> ExitCode {
     ExitCode::FAILURE
 }
 
-fn run_resolve(id: &str, archive: &Path, json: bool, show_deleted: bool) -> ExitCode {
-    let lookup = match resolve(archive, id) {
-        Ok(l) => l,
+fn run_resolve(
+    ids: &[String],
+    archive: &Path,
+    json: bool,
+    raw: bool,
+    show_deleted: bool,
+) -> ExitCode {
+    let resolver = match Resolver::new(archive) {
+        Ok(r) => r,
         Err(e) => {
             eprintln!("{e}");
             return ExitCode::FAILURE;
         }
     };
-    match lookup {
-        Lookup::Found(r) => {
-            print_resolved(&r, json, true);
-            ExitCode::SUCCESS
+    // 1 if any ID is unknown or ambiguous, else 2 if any is deleted, else 0.
+    let (mut missing, mut deleted) = (false, false);
+    for (i, id) in ids.iter().enumerate() {
+        let lookup = resolver.lookup(id);
+        missing |= matches!(lookup, Lookup::NotFound | Lookup::Ambiguous(_));
+        deleted |= matches!(lookup, Lookup::Deleted(_));
+        if json {
+            let c = Clipping::of(id, &lookup, show_deleted);
+            println!(
+                "{}",
+                serde_json::to_string(&c).expect("clippings serialise")
+            );
+            continue;
         }
-        Lookup::Deleted(r) => {
-            if json {
-                print_resolved(&r, true, show_deleted);
-            } else {
+        if raw {
+            let (status, r) = match &lookup {
+                Lookup::Found(r) => ("found", Some(r)),
+                Lookup::Deleted(r) => ("deleted", Some(r)),
+                Lookup::NotFound => ("unknown", None),
+                Lookup::Ambiguous(_) => ("ambiguous", None),
+            };
+            let out = serde_json::json!({
+                "queried": id,
+                "status": status,
+                "file": r.map(|r| r.file_name.clone()),
+                "entry": r.map(|r| serde_json::to_value(&r.entry).expect("entries serialise")),
+            });
+            println!("{out}");
+            continue;
+        }
+        if i > 0 {
+            println!();
+        }
+        match &lookup {
+            Lookup::Found(r) => print_resolved(r),
+            Lookup::Deleted(r) => {
                 println!(
                     "{id} resolves to {}, which was deleted ({})",
                     r.canonical_id(),
                     r.file_name
                 );
                 if show_deleted {
-                    print_resolved(&r, false, true);
+                    print_resolved(r);
                 }
             }
-            ExitCode::from(2)
+            Lookup::NotFound => eprintln!("{id}: no entry has this ID or alias"),
+            Lookup::Ambiguous(holders) => {
+                eprintln!(
+                    "{id} is claimed by several entries (run check): {}",
+                    holders.join("; ")
+                )
+            }
         }
-        Lookup::NotFound => {
-            eprintln!("{id}: no entry has this ID or alias");
-            ExitCode::FAILURE
-        }
-        Lookup::Ambiguous(holders) => {
-            eprintln!(
-                "{id} is claimed by several entries (run check): {}",
-                holders.join("; ")
-            );
-            ExitCode::FAILURE
-        }
+    }
+    if missing {
+        ExitCode::FAILURE
+    } else if deleted {
+        ExitCode::from(2)
+    } else {
+        ExitCode::SUCCESS
     }
 }
 
-fn print_resolved(r: &Resolved, json: bool, with_content: bool) {
-    if json {
-        let mut out = serde_json::json!({
-            "queried": r.queried,
-            "id": r.canonical_id(),
-            "deleted": r.entry.deleted,
-            "file": r.file_name,
-            "book": {"title": r.book.title, "authors": r.book.authors, "calibre_uuid": r.book.calibre_uuid},
-        });
-        if with_content {
-            out["entry"] = serde_json::to_value(&r.entry).expect("entries serialise");
-        }
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&out).expect("values serialise")
-        );
-        return;
-    }
+fn print_resolved(r: &Resolved) {
     let alias = if r.via_alias() {
         format!(" (alias {})", r.queried)
     } else {
