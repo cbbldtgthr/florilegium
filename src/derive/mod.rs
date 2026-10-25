@@ -418,6 +418,12 @@ fn anchored(
     m.insert("start_cfi".into(), json!(start));
     m.insert("end_cfi".into(), json!(end));
     m.insert("style".into(), config.style.clone());
+    // Chapter titles, so "Browse annotations" groups the highlight under its
+    // section as it does calibre's own highlights.
+    let family = text.toc_family(hit);
+    if !family.is_empty() {
+        m.insert("toc_family_titles".into(), json!(family));
+    }
     m.insert("derived_with".into(), json!(derived_with()));
     m
 }

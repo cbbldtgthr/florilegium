@@ -73,6 +73,10 @@ resolve id archive *args:
 cfi-selfcheck library:
     cargo run --quiet --release --example cfi_selfcheck -- "{{library}}"
 
+# Dev-only: compute chapter titles of a real library's EPUB highlights and compare with calibre's
+toc-selfcheck library:
+    cargo run --quiet --release --example toc_selfcheck -- "{{library}}"
+
 # Run annot-archive with the given arguments, e.g. `just run --help`
 run *args:
     cargo run --quiet -- {{args}}

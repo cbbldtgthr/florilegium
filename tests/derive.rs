@@ -37,7 +37,17 @@ fn epub(path: &Path, chapters: &[&str]) {
     put(
         "OEBPS/content.opf",
         &format!(
-            r#"<package xmlns="http://www.idpf.org/2007/opf"><manifest>{items}</manifest><spine>{refs}</spine></package>"#
+            r#"<package xmlns="http://www.idpf.org/2007/opf" version="3.0"><manifest>{items}<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/></manifest><spine>{refs}</spine></package>"#
+        ),
+    );
+    // A table of contents: one part holding a chapter per document.
+    let chapters_li: String = (0..chapters.len())
+        .map(|i| format!(r#"<li><a href="ch{i}.xhtml">Chapter {}</a></li>"#, i + 1))
+        .collect();
+    put(
+        "OEBPS/nav.xhtml",
+        &format!(
+            r#"<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc"><ol><li><span>Part One</span><ol>{chapters_li}</ol></li></ol></nav></body></html>"#
         ),
     );
     for (i, body) in chapters.iter().enumerate() {
@@ -277,6 +287,15 @@ fn a_matched_book_is_linked_and_its_highlights_anchored() {
         "the entry's own text is not repeated"
     );
     assert_eq!(b["style"]["which"], "yellow");
+    assert_eq!(
+        b["toc_family_titles"],
+        json!(["Part One", "Chapter 1"]),
+        "chapter titles from the EPUB's TOC"
+    );
+    assert_eq!(
+        block(&e, "Bees read")["toc_family_titles"],
+        json!(["Part One", "Chapter 2"])
+    );
     assert!(
         b["derived_with"]
             .as_str()

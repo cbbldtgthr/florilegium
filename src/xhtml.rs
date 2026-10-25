@@ -222,6 +222,13 @@ impl Dom {
         self.children_named(html, "body")[0]
     }
 
+    /// The first element carrying this id, in document order.
+    pub fn element_with_id(&self, wanted: &str) -> Option<NodeId> {
+        self.nodes
+            .iter()
+            .position(|n| matches!(&n.kind, Kind::Element { id: Some(i), .. } if i == wanted))
+    }
+
     /// How many elements carry this id; the viewer asserts ids only when unique.
     pub fn id_count(&self, id: &str) -> usize {
         self.nodes
@@ -254,7 +261,7 @@ fn check_root(e: &BytesStart) -> Result<(), String> {
 
 /// An entity's expansion: XML's five, then the HTML named-entity table that
 /// calibre substitutes before parsing.
-fn entity(name: &str) -> Option<&'static str> {
+pub(crate) fn entity(name: &str) -> Option<&'static str> {
     Some(match name {
         "amp" => "&",
         "lt" => "<",

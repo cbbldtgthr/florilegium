@@ -21,6 +21,13 @@ pub struct SpineItem {
 pub struct Epub {
     zip: ZipArchive<File>,
     pub spine: Vec<SpineItem>,
+    /// The OPF package's major version (2 or 3).
+    pub version: u32,
+    /// The EPUB 3 navigation document (manifest item with the `nav`
+    /// property), if any.
+    pub nav: Option<String>,
+    /// The EPUB 2 NCX (the spine's `toc` item, else the manifest's NCX), if any.
+    pub ncx: Option<String>,
 }
 
 impl Epub {
@@ -31,8 +38,14 @@ impl Epub {
         let container = read_entry(&mut zip, "META-INF/container.xml")?;
         let opf_path = rootfile(&container).ok_or("META-INF/container.xml names no rootfile")?;
         let opf = read_entry(&mut zip, &opf_path)?;
-        let spine = spine(&opf, &opf_path)?;
-        Ok(Epub { zip, spine })
+        let p = package(&opf, &opf_path)?;
+        Ok(Epub {
+            zip,
+            spine: p.spine,
+            version: p.version,
+            nav: p.nav,
+            ncx: p.ncx,
+        })
     }
 
     pub fn read(&mut self, name: &str) -> Result<Vec<u8>, String> {
@@ -49,11 +62,11 @@ fn read_entry(zip: &mut ZipArchive<File>, name: &str) -> Result<Vec<u8>, String>
     Ok(out)
 }
 
-fn local(name: &str) -> &str {
+pub(crate) fn local(name: &str) -> &str {
     name.rsplit(':').next().unwrap_or(name)
 }
 
-fn attr(e: &quick_xml::events::BytesStart, key: &str) -> Option<String> {
+pub(crate) fn attr(e: &quick_xml::events::BytesStart, key: &str) -> Option<String> {
     e.attributes()
         .flatten()
         .find(|a| local(a.key.as_ref()) == key)
@@ -77,19 +90,49 @@ fn rootfile(container: &[u8]) -> Option<String> {
     }
 }
 
-fn spine(opf: &[u8], opf_path: &str) -> Result<Vec<SpineItem>, String> {
+struct Package {
+    spine: Vec<SpineItem>,
+    version: u32,
+    nav: Option<String>,
+    ncx: Option<String>,
+}
+
+struct ManifestItem {
+    id: String,
+    name: String,
+    media_type: String,
+    properties: String,
+}
+
+fn package(opf: &[u8], opf_path: &str) -> Result<Package, String> {
     let base = opf_path.rsplit_once('/').map_or("", |(dir, _)| dir);
-    let mut manifest: Vec<(String, String, String)> = Vec::new();
+    let mut manifest: Vec<ManifestItem> = Vec::new();
     let mut idrefs: Vec<String> = Vec::new();
+    let mut version = 2;
+    let mut spine_toc = None;
     let mut r = Reader::from_reader(opf);
     loop {
         match r.read_event() {
             Ok(Event::Start(e) | Event::Empty(e)) => match local(e.name().as_ref()) {
+                "package" => {
+                    let v = attr(&e, "version").unwrap_or_default();
+                    version = v
+                        .split('.')
+                        .next()
+                        .and_then(|m| m.trim().parse().ok())
+                        .unwrap_or(2);
+                }
                 "item" => {
                     if let (Some(id), Some(href)) = (attr(&e, "id"), attr(&e, "href")) {
-                        manifest.push((id, href, attr(&e, "media-type").unwrap_or_default()));
+                        manifest.push(ManifestItem {
+                            id,
+                            name: join(base, &percent_decode(&href)),
+                            media_type: attr(&e, "media-type").unwrap_or_default(),
+                            properties: attr(&e, "properties").unwrap_or_default(),
+                        });
                     }
                 }
+                "spine" => spine_toc = attr(&e, "toc"),
                 "itemref" => idrefs.extend(attr(&e, "idref")),
                 _ => {}
             },
@@ -98,22 +141,41 @@ fn spine(opf: &[u8], opf_path: &str) -> Result<Vec<SpineItem>, String> {
             _ => {}
         }
     }
-    Ok(idrefs
+    let spine = idrefs
         .iter()
         .enumerate()
         .filter_map(|(index, idref)| {
-            let (_, href, media_type) = manifest.iter().find(|(id, _, _)| id == idref)?;
+            let item = manifest.iter().find(|m| m.id == *idref)?;
             Some(SpineItem {
                 index,
-                name: join(base, &percent_decode(href)),
-                media_type: media_type.clone(),
+                name: item.name.clone(),
+                media_type: item.media_type.clone(),
             })
         })
-        .collect())
+        .collect();
+    // calibre's find_existing_nav_toc and find_existing_ncx_toc.
+    let nav = manifest
+        .iter()
+        .find(|m| m.properties.split_whitespace().any(|p| p == "nav"))
+        .map(|m| m.name.clone());
+    let ncx = spine_toc
+        .and_then(|id| manifest.iter().find(|m| m.id == id))
+        .or_else(|| {
+            manifest
+                .iter()
+                .find(|m| m.media_type == "application/x-dtbncx+xml")
+        })
+        .map(|m| m.name.clone());
+    Ok(Package {
+        spine,
+        version,
+        nav,
+        ncx,
+    })
 }
 
 /// `base/href` with `.` and `..` resolved, as a zip entry name.
-fn join(base: &str, href: &str) -> String {
+pub(crate) fn join(base: &str, href: &str) -> String {
     let href = href.split(['#', '?']).next().unwrap_or(href);
     let mut parts: Vec<&str> = base.split('/').filter(|p| !p.is_empty()).collect();
     for p in href.split('/') {
@@ -128,7 +190,7 @@ fn join(base: &str, href: &str) -> String {
     parts.join("/")
 }
 
-fn percent_decode(s: &str) -> String {
+pub(crate) fn percent_decode(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;

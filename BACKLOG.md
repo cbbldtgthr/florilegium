@@ -20,12 +20,6 @@ does.
 
 ## M3: derive CFIs for Kindle highlights
 
-### Chapter titles on derived highlights
-Fill `toc_family_titles` on derived blocks from the EPUB's table of contents
-(NCX or nav), mapping each spine document and anchor to its chain of TOC
-titles as calibre's viewer does, so derived highlights show their chapter in
-"Browse annotations" like native ones.
-
 ### Synthetic EPUB and golden samples
 A small synthetic EPUB (repeated phrases, curly quotes, em dashes, nested
 inline markup, a cross-paragraph passage, a non-BMP character, an XHTML

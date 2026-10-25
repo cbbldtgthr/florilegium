@@ -13,4 +13,5 @@ pub mod merge_books;
 pub mod norm;
 pub mod push;
 pub mod resolve;
+pub mod toc;
 pub mod xhtml;

@@ -15,9 +15,13 @@ pub struct Doc {
     pub offset: usize,
 }
 
-/// A book's spine documents, parsed once.
+/// A book's spine documents, parsed once, and its table of contents placed
+/// in them.
 pub struct BookText {
     pub docs: Vec<Doc>,
+    /// TOC entries as ((document, node), TOC order, titles), for the entries
+    /// whose target is a readable document.
+    toc: Vec<((usize, usize), usize, Vec<String>)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,7 +67,44 @@ impl BookText {
             // A separator character between documents keeps their text apart.
             offset += len + 1;
         }
-        Ok(BookText { docs })
+        let tree = crate::toc::read_toc(&mut epub);
+        let toc = crate::toc::flatten(&tree)
+            .into_iter()
+            .enumerate()
+            .filter_map(|(order, (node, family))| {
+                let dest = node.dest.as_ref()?;
+                let doc = docs.iter().position(|d| d.spine.name == *dest)?;
+                let (dom, _) = docs[doc].parsed.as_ref().ok()?;
+                // A missing anchor counts as the start of its document.
+                let at = node
+                    .frag
+                    .as_ref()
+                    .and_then(|f| dom.element_with_id(f))
+                    .unwrap_or(0);
+                Some(((doc, at), order, family))
+            })
+            .collect();
+        Ok(BookText { docs, toc })
+    }
+
+    /// The titles calibre's viewer would record for a highlight starting at
+    /// `hit`: those of the last TOC entry at or before it in reading order
+    /// (the later TOC entry on a tie, i.e. the deeper one), with its titled
+    /// ancestors, outermost first. Empty before the first entry.
+    pub fn toc_family(&self, hit: Hit) -> Vec<String> {
+        let Ok((dom, hay)) = &self.docs[hit.doc].parsed else {
+            return Vec::new();
+        };
+        let Some((start, _)) = hay.points(dom, hit.range) else {
+            return Vec::new();
+        };
+        let here = (hit.doc, start.node);
+        self.toc
+            .iter()
+            .filter(|(at, _, _)| *at <= here)
+            .max_by_key(|(at, order, _)| (*at, *order))
+            .map(|(_, _, family)| family.clone())
+            .unwrap_or_default()
     }
 
     pub fn total_len(&self) -> usize {
