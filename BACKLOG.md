@@ -19,47 +19,6 @@ does.
 
 ## M1: Core — clippings to archive (no calibre needed)
 
-### Supersede replay (highlights)
-Kindle records an edit (extend, trim, redo) as a new appended entry. For
-overlapping highlights only the latest is kept. This logic exists **only**
-here; the archive and calibre match by ID alone.
-
-Per book, walk highlights in file order keeping a set of *current* clusters.
-A new highlight absorbs every current cluster whose **latest member** truly
-overlaps it; the merged cluster takes content from the new highlight.
-
-**True overlap** (decided after measuring the real clippings file):
-- *Candidates*: location ranges that intersect inclusively, i.e. touching at a
-  boundary is enough to be compared. Page-only entries are candidates only
-  within the same page.
-- *Confirmed* only by text: the longest common substring of the two
-  `norm_v1`, lowercased texts covers at least 50% of the shorter text **and**
-  is at least 20 characters. Both thresholds are config, tuned with fixtures.
-- Why: Kindle locations are ~150 characters, so adjacent separate highlights
-  routinely share a boundary location (81 such pairs in the real file, almost
-  all sharing ≤23 chars of text), while real edits that shifted both ends share
-  ≥42 chars and ≥51%. Location alone would silently merge distinct highlights.
-
-The surviving ID is the would-be ID of the **earliest** member in file order;
-every other member's ID is an alias. If Kindle trimmed old lines and a
-cluster's earliest member vanishes, the survivor ID may differ from run to
-run; that is harmless because archive merge matches on any alias.
-
-Tests (synthetic): extend, trim, edit of an edit, re-highlight on re-read, a
-wide highlight absorbing two, a later highlight overlapping only a superseded
-member (must not absorb the current one), adjacent highlights sharing a
-boundary location (must **not** merge), page-only fallback, aliases hold every
-member ID, earliest survives.
-
-### Notes
-After the replay, walk a book's notes in file order.
-- A note attaches to the current highlight cluster whose location range
-  contains the note's location (inclusive, tolerance in config, default 0).
-  Latest note in file order wins. The note's own ID is not kept as an alias.
-- A note that attaches to nothing becomes an orphan entry (`type: "note"`,
-  `text: null`) with its own ID, latest-wins among orphans at the same
-  location, and is listed in the report's warnings.
-
 ### Archive format and deterministic writer
 One JSON file per book, named `<slug>--<short-id>.json`, name assigned at
 creation and never changed. Files are found by the identity fields inside
@@ -126,7 +85,7 @@ PATH]` re-processes the whole file each run. Loads the parser's locale settings
 (keywords, date formats, date word translations, Kindle timezone) from
 `config.toml`, falling back to the English defaults. Prints per-book counts (created,
 updated, unchanged, merged, tombstone-matched), warnings (unparsed blocks,
-orphan notes, bad dates), and a prominent list of `|M| ≥ 2` merges.
+orphan notes, bad dates, notes joined from several positions), and a prominent list of `|M| ≥ 2` merges.
 Acceptance: a second run with the same file changes zero bytes; appending
 clippings changes only the entries they touch; an entry later edited on the
 Kindle keeps its original ID.
@@ -137,10 +96,6 @@ Kindle keeps its original ID.
   `calibre_uuid`, files that would re-serialise differently.
 - `resolve ID --archive DIR`: look up by ID **or alias**; print the canonical
   ID and the entry as JSON or text; report tombstones.
-
-### Synthetic fixtures
-Extend `tests/fixtures/kindle/` with invented clippings covering every replay
-and note case above. Nothing real, ever.
 
 ---
 
