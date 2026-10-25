@@ -3,8 +3,9 @@
 Work specced far enough to start, not yet built. The commit that delivers an
 item deletes it here; partial delivery trims it to what remains.
 
-Terms used throughout: an **archive** is a directory of per-book JSON files (a
-separate, private git repo). An **entry** is one highlight or orphan note in
+Terms used throughout: an **archive** is a folder of per-book JSON files in a
+private git repo (never this one), a folder of its own since every `.json` in
+it is read as a book. An **entry** is one highlight or orphan note in
 it. An **ID** is the entry's identifier.
 
 Extensibility: other readers (e.g. Kobo) will become sources later. Keep each
@@ -14,17 +15,6 @@ later `kobo`), and keep `sources` an open set of names. Identity merge, the
 archive writer, `check` and `resolve` must not special-case a source. Any
 dedup a future source needs lives inside that source, as the Kindle replay
 does.
-
----
-
-## M1: Core — clippings to archive (no calibre needed)
-
-### `check` and `resolve`
-- `check --archive DIR`: duplicate IDs or alias collisions across entries, an
-  alias that is another entry's ID, schema violations, two files claiming one
-  `calibre_uuid`, files that would re-serialise differently.
-- `resolve ID --archive DIR`: look up by ID **or alias**; print the canonical
-  ID and the entry as JSON or text; report tombstones.
 
 ---
 
@@ -51,7 +41,8 @@ calibre 8.16.2 and a real library:
 annotations: find the book file by `calibre_uuid` (create one if absent, with
 empty `kindle_titles`); match entries by ID or alias only; `text`, `note`,
 `created` and the `calibre` block come from calibre with `match: "native"`;
-`sources` gains `calibre`; the `kindle` block is untouched. Store calibre's
+`sources` gains `calibre`; the `kindle` block is untouched. `check` gains: a `native` entry whose text no longer matches the calibre
+highlight's text (e.g. after a Kindle ingest overwrote it). Store calibre's
 values verbatim so a later push → read-back produces no diff. Old CFIs that
 current calibre can no longer decode (seen on 2020-era highlights) are stored
 as-is.

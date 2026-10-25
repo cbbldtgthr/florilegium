@@ -38,8 +38,9 @@ becomes one place to see everything.
   backup, and only what the tool is confident about. Anything uncertain is
   flagged, never guessed.
 - **Public tool, private data.** This repository never contains real clippings,
-  book text or notes, including in test fixtures. Your archive lives in its own
-  private repository.
+  book text or notes, including in test fixtures. Your archive lives in a
+  private repository of yours (beside your clippings backup, say), never this
+  one.
 
 ## Scope
 

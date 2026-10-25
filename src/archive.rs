@@ -157,6 +157,13 @@ pub struct LoadedBook {
     on_disk: Option<Vec<u8>>,
 }
 
+impl LoadedBook {
+    /// Whether the file on disk already holds exactly its canonical bytes.
+    pub fn is_canonical_on_disk(&self) -> bool {
+        self.on_disk.as_deref() == Some(self.data.to_bytes().as_slice())
+    }
+}
+
 #[derive(Debug)]
 pub struct Archive {
     pub dir: PathBuf,

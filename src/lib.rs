@@ -1,7 +1,9 @@
 pub mod archive;
+pub mod check;
 pub mod config;
 pub mod id;
 pub mod ingest;
 pub mod kindle;
 pub mod merge;
 pub mod norm;
+pub mod resolve;

@@ -32,6 +32,15 @@ inspect-clippings clippings *args:
 ingest-clippings clippings archive *args:
     c="$1"; a="$2"; shift 2; cargo run --quiet -- ingest-clippings "$c" --archive "$a" "$@"
 
+# Validate an archive directory; fails if anything is wrong
+check archive:
+    cargo run --quiet -- check --archive "{{archive}}"
+
+# Look up an entry by ID or alias; add `--json` or `--show-deleted`
+[positional-arguments]
+resolve id archive *args:
+    i="$1"; a="$2"; shift 2; cargo run --quiet -- resolve "$i" --archive "$a" "$@"
+
 # Run annot-archive with the given arguments, e.g. `just run --help`
 run *args:
     cargo run --quiet -- {{args}}
