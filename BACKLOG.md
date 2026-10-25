@@ -40,15 +40,16 @@ the generator must reproduce.
 ### `push-calibre`
 `push-calibre --library PATH --archive DIR [--dry-run] [--include
 approximate,ambiguous]`.
-- Eligible by default: live highlight entries with `exact`, `manual` or
-  `native` matches, on EPUB only: a `native` entry read from another format
-  (AZW3, MOBI) stays archive-only. `approximate`/`ambiguous` need `--include`. Never
-  `unmatched`, pending, orphan notes or tombstones.
-- Build each annotation from the entry and its `calibre` block: `uuid` = entry
-  ID, `timestamp` = `created`, `highlighted_text` = `text` (derived blocks do
-  not repeat it), `notes` = `note`, and the block's CFIs, spine fields and
+- Writes only EPUB annotations, from each entry's `calibre["EPUB"]` anchor,
+  whatever device or format the entry came from. Eligible by default: live
+  highlights whose EPUB anchor is `exact`, `manual` or `native`.
+  `approximate`/`ambiguous` need `--include`. Never `unmatched`, orphan notes,
+  tombstones, or entries without a `created` date (calibre needs one).
+- Build each annotation from the entry and its EPUB anchor: `uuid` = entry
+  ID, `timestamp` = `created`, `highlighted_text` = `text` (derived anchors do
+  not repeat it), `notes` = `note`, and the anchor's CFIs, spine fields and
   `style`; drop the tool's own keys (`match`, `reason`, `candidates`,
-  `occurrences`, `similarity`, `derived_with`, `format`, `book_id`).
+  `occurrences`, `similarity`, `derived_with`, `book_id`).
 - Mechanism: calibre's merge keeps the newer timestamp and, on a tie, the
   existing annotation, so a plain merge cannot update text. Instead, read the
   book/format's current viewer annotations, replace those whose `uuid` matches

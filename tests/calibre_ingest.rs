@@ -157,7 +157,7 @@ fn viewer_highlights_become_native_entries() {
         .iter()
         .find(|e| e.text.as_deref() == Some("On another format."))
         .unwrap();
-    assert_eq!(azw3.calibre.as_ref().unwrap()["format"], "AZW3");
+    assert_eq!(azw3.calibre.keys().collect::<Vec<_>>(), vec!["AZW3"]);
 
     let e = book.entries.iter().find(|e| e.id == A).unwrap();
     assert_eq!(
@@ -172,9 +172,9 @@ fn viewer_highlights_become_native_entries() {
     );
     assert_eq!(e.sources, vec!["calibre"]);
     assert!(e.kindle.is_none());
-    let c = e.calibre.as_ref().unwrap();
+    assert_eq!(e.calibre.keys().collect::<Vec<_>>(), vec!["EPUB"]);
+    let c = &e.calibre["EPUB"];
     assert_eq!(c["match"], "native");
-    assert_eq!(c["format"], "EPUB");
     assert_eq!(c["book_id"], 7);
     assert_eq!(c["start_cfi"], "/2/4/2/12/1:0");
     assert_eq!(c["highlighted_text"], e.text.clone().unwrap().as_str());
@@ -215,10 +215,14 @@ fn pushed_kindle_entry(calibre_cfis_match: bool) -> (tempfile::TempDir, String) 
     let mut a = Archive::load(archive.path()).unwrap();
     a.books[0].data.book.calibre_uuid = Some(BOOK_UUID.into());
     let e = &mut a.books[0].data.entries[0];
-    e.calibre = Some(json!({
-        "match": "exact", "derived_with": "annot-archive 0.1.0",
-        "start_cfi": "/2/4/2/12/1:0", "end_cfi": "/2/4/2/12/1:40", "spine_name": "text/ch1.xhtml",
-    }));
+    e.calibre.insert(
+        "EPUB".into(),
+        json!({
+            "match": "exact", "derived_with": "annot-archive 0.1.0",
+            "start_cfi": "/2/4/2/12/1:0", "end_cfi": "/2/4/2/12/1:40", "spine_name": "text/ch1.xhtml",
+            "spine_index": 2, "book_id": 7, "style": {"kind": "color", "type": "builtin", "which": "yellow"},
+        }),
+    );
     let id = e.id.clone();
     let created = e.created.clone().unwrap();
     a.save(false).unwrap();
@@ -244,15 +248,15 @@ fn a_pushed_kindle_highlight_read_back_is_the_same_entry() {
     assert_eq!(e.id, id);
     assert_eq!(e.sources, vec!["calibre", "kindle"]);
     assert!(e.kindle.is_some(), "kindle block untouched");
-    let c = e.calibre.as_ref().unwrap();
+    let c = &e.calibre["EPUB"];
     assert_eq!(
         c["match"], "exact",
         "same CFIs: our own anchor, not relabelled native"
     );
     assert_eq!(c["derived_with"], "annot-archive 0.1.0");
-    assert_eq!(
-        c["style"]["which"], "yellow",
-        "calibre's own fields are taken"
+    assert!(
+        c.get("highlighted_text").is_none() && c.get("uuid").is_none(),
+        "our anchor is kept as it was, so a push and a read change nothing"
     );
 }
 
@@ -260,7 +264,7 @@ fn a_pushed_kindle_highlight_read_back_is_the_same_entry() {
 fn a_re_anchored_highlight_becomes_native() {
     let (archive, _) = pushed_kindle_entry(false);
     let a = Archive::load(archive.path()).unwrap();
-    let c = a.books[0].data.entries[0].calibre.as_ref().unwrap();
+    let c = &a.books[0].data.entries[0].calibre["EPUB"];
     assert_eq!(c["match"], "native");
     assert!(c.get("derived_with").is_none());
 }
@@ -285,7 +289,7 @@ fn check_reports_native_text_overwritten_by_kindle() {
     assert!(
         issues[0]
             .message
-            .starts_with("text differs from the calibre highlight")
+            .starts_with("text differs from the EPUB highlight in calibre")
     );
 }
 
@@ -295,4 +299,47 @@ fn a_folder_without_metadata_db_is_an_error() {
     let archive = tempfile::tempdir().unwrap();
     let err = ingest_calibre(not_a_library.path(), archive.path(), &[], false).unwrap_err();
     assert!(err.contains("no metadata.db"), "{err}");
+}
+
+#[test]
+fn one_highlight_on_two_formats_is_one_entry_with_two_anchors() {
+    // Read on AZW3 long ago, later written to the EPUB under the same ID with
+    // a newer note.
+    let mut on_epub = highlight(
+        A,
+        "Bees do not read the calendar; they read the light.",
+        Some("Newer note."),
+    );
+    on_epub["timestamp"] = json!("2026-05-01T00:00:00.000Z");
+    on_epub["start_cfi"] = json!("/2/4/2/40/1:0");
+    let lib = library(&[
+        (
+            7,
+            "AZW3",
+            "local",
+            "viewer",
+            highlight(
+                A,
+                "Bees do not read the calendar; they read the light.",
+                Some("Seasons."),
+            ),
+        ),
+        (7, "EPUB", "local", "viewer", on_epub),
+    ]);
+    let archive = tempfile::tempdir().unwrap();
+    let r = ingest_calibre(lib.path(), archive.path(), &[], false).unwrap();
+    assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+    let a = Archive::load(archive.path()).unwrap();
+    let entries = &a.books[0].data.entries;
+    assert_eq!(entries.len(), 1);
+    let e = &entries[0];
+    assert_eq!(e.calibre.keys().collect::<Vec<_>>(), vec!["AZW3", "EPUB"]);
+    assert_eq!(e.calibre["AZW3"]["start_cfi"], "/2/4/2/12/1:0");
+    assert_eq!(e.calibre["EPUB"]["start_cfi"], "/2/4/2/40/1:0");
+    assert_eq!(
+        e.note.as_deref(),
+        Some("Newer note."),
+        "the most recently changed annotation supplies the content"
+    );
+    assert_eq!(check(archive.path()), vec![]);
 }

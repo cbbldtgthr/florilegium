@@ -51,10 +51,12 @@ identity or the archive format may assume there are only two.
 
 ## Constraints
 
-- calibre is only ever written to on EPUB. Highlights on any format are read
-  and archived, but only EPUB books get highlights written back; convert a book
-  to EPUB in calibre yourself to see its Kindle highlights there. The tool never
-  converts or modifies a book.
+- The archive does not depend on the format a highlight came from, and calibre
+  is only ever written to on EPUB. A highlight made on the Kindle, or on a
+  book's AZW3 copy in calibre, is placed in that book's EPUB as well, which is
+  how highlights move between formats without that path being designed for.
+  Convert a book to EPUB in calibre yourself to see its highlights there; the
+  tool never converts or modifies a book.
 - No GUI, no syncing back to the Kindle, and no automatic detection of deleted
   highlights. You mark a deletion by hand in the archive and review it in the
   diff.

@@ -32,7 +32,7 @@ fn entry(id: &str, created: Option<&str>) -> Entry {
             page: None,
             raw_added_on: "Sunday, 4 January 2026 10:00:00".into(),
         }),
-        calibre: None,
+        calibre: BTreeMap::new(),
         other: BTreeMap::new(),
     }
 }
@@ -75,7 +75,7 @@ const GOLDEN: &str = r#"{
   "entries": [
     {
       "aliases": [],
-      "calibre": null,
+      "calibre": {},
       "created": "2026-01-01T00:00:00.000Z",
       "deleted": false,
       "id": "cccc",
@@ -102,7 +102,7 @@ const GOLDEN: &str = r#"{
         "x",
         "y"
       ],
-      "calibre": null,
+      "calibre": {},
       "created": "2026-10-23T13:50:12.000Z",
       "deleted": false,
       "id": "bbbb",
@@ -123,7 +123,7 @@ const GOLDEN: &str = r#"{
     },
     {
       "aliases": [],
-      "calibre": null,
+      "calibre": {},
       "created": null,
       "deleted": false,
       "id": "aaaa",
@@ -143,7 +143,7 @@ const GOLDEN: &str = r#"{
       "type": "note"
     }
   ],
-  "schema_version": 1
+  "schema_version": 2
 }
 "#;
 
@@ -300,8 +300,44 @@ fn an_unreadable_book_file_is_an_error_naming_it() {
 #[test]
 fn a_newer_schema_is_refused() {
     let dir = tempfile::tempdir().unwrap();
-    let newer = GOLDEN.replace("\"schema_version\": 1", "\"schema_version\": 2");
+    let newer = GOLDEN.replace("\"schema_version\": 2", "\"schema_version\": 3");
     fs::write(dir.path().join("future--12345678.json"), newer).unwrap();
     let err = Archive::load(dir.path()).unwrap_err();
-    assert!(err.contains("schema_version 2"), "{err}");
+    assert!(err.contains("schema_version 3"), "{err}");
+}
+
+#[test]
+fn version_1_files_migrate_to_anchors_by_format() {
+    let dir = tempfile::tempdir().unwrap();
+    let v1 = json!({
+        "schema_version": 1,
+        "book": {"title": "T", "authors": [], "kindle_titles": [], "calibre_uuid": null},
+        "entries": [
+            {"id": "aaaa", "aliases": [], "type": "highlight", "text": "x", "note": null, "created": null,
+             "deleted": false, "sources": ["calibre"], "kindle": null,
+             "calibre": {"match": "native", "format": "AZW3", "start_cfi": "/2"}},
+            {"id": "bbbb", "aliases": [], "type": "highlight", "text": "y", "note": null, "created": null,
+             "deleted": false, "sources": ["kindle"], "kindle": null,
+             "calibre": {"match": "unmatched", "reason": "no-epub"}},
+            {"id": "cccc", "aliases": [], "type": "highlight", "text": "z", "note": null, "created": null,
+             "deleted": false, "sources": ["kindle"], "kindle": null, "calibre": null}
+        ]
+    });
+    fs::write(dir.path().join("old--00000000.json"), v1.to_string()).unwrap();
+    let mut a = Archive::load(dir.path()).unwrap();
+    let e = &a.books[0].data.entries;
+    assert_eq!(
+        e[0].calibre["AZW3"],
+        json!({"match": "native", "start_cfi": "/2"})
+    );
+    assert_eq!(
+        e[1].calibre["EPUB"]["reason"], "no-epub",
+        "a v1 block without a format was the EPUB's"
+    );
+    assert!(e[2].calibre.is_empty());
+    a.save(false).unwrap();
+    let rewritten: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("old--00000000.json")).unwrap())
+            .unwrap();
+    assert_eq!(rewritten["schema_version"], 2);
 }

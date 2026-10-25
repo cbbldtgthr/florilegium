@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// User-edited, not a book file.
 pub const OVERRIDES_FILE: &str = "book-overrides.json";
@@ -69,8 +69,11 @@ pub struct Entry {
     /// Sources this entry has been seen in, e.g. `kindle`, `calibre`.
     pub sources: Vec<String>,
     pub kindle: Option<KindleBlock>,
-    /// Derived or native calibre data; typed when the calibre side lands.
-    pub calibre: Option<Value>,
+    /// Where this highlight sits in calibre, one anchor per book format
+    /// (`EPUB`, `AZW3`, …). An anchor is calibre's own (`match: "native"`,
+    /// read from that format) or derived by the tool (EPUB only). The entry
+    /// itself never depends on which format it came from.
+    pub calibre: BTreeMap<String, Value>,
     /// Fields this version does not know (a future source's block, a field the
     /// user added), kept so a rewrite never drops them.
     #[serde(flatten)]
@@ -200,15 +203,21 @@ impl Archive {
             let path = dir.join(&name);
             let bytes =
                 fs::read(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-            let data: BookFile = serde_json::from_slice(&bytes)
-                .map_err(|e| format!("{} is not a valid book file: {e}", path.display()))?;
-            if data.schema_version != SCHEMA_VERSION {
-                return Err(format!(
-                    "{} has schema_version {}, this tool reads {SCHEMA_VERSION}",
-                    path.display(),
-                    data.schema_version
-                ));
+            let invalid =
+                |e: serde_json::Error| format!("{} is not a valid book file: {e}", path.display());
+            let mut raw: Value = serde_json::from_slice(&bytes).map_err(invalid)?;
+            match raw.get("schema_version").and_then(Value::as_u64) {
+                Some(1) => migrate_v1(&mut raw),
+                Some(v) if v == u64::from(SCHEMA_VERSION) => {}
+                v => {
+                    return Err(format!(
+                        "{} has schema_version {}, this tool reads 1 and {SCHEMA_VERSION}",
+                        path.display(),
+                        v.map_or("none".to_string(), |v| v.to_string())
+                    ));
+                }
             }
+            let data: BookFile = serde_json::from_value(raw).map_err(invalid)?;
             books.push(LoadedBook {
                 file_name: name,
                 data,
@@ -291,6 +300,30 @@ impl Archive {
             self.removed.clear();
         }
         Ok(report)
+    }
+}
+
+/// Version 1 held one calibre block per entry (`null` or an object with its
+/// own `format`); version 2 keys anchors by format. A v1 block without a
+/// format was derived for the EPUB. Migrated files are rewritten on the next
+/// save.
+fn migrate_v1(raw: &mut Value) {
+    raw["schema_version"] = Value::from(SCHEMA_VERSION);
+    let Some(entries) = raw.get_mut("entries").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for e in entries {
+        let anchors = match e.get_mut("calibre").map(Value::take) {
+            Some(Value::Object(mut block)) => {
+                let format = block
+                    .remove("format")
+                    .and_then(|f| f.as_str().map(String::from))
+                    .unwrap_or_else(|| crate::calibre::WRITABLE_FORMAT.to_string());
+                Map::from_iter([(format, Value::Object(block))])
+            }
+            _ => Map::new(),
+        };
+        e["calibre"] = Value::Object(anchors);
     }
 }
 

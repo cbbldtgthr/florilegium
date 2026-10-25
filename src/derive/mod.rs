@@ -89,23 +89,22 @@ pub struct DeriveReport {
     pub saved: SaveReport,
 }
 
-/// Which entries a run derives: those with no calibre block yet, and those
-/// left `unmatched` (their cause, a missing book or EPUB, may have gone away).
-/// `rederive` also refreshes `exact`, `approximate` and `ambiguous`.
+/// Which entries a run derives: any live entry, from any source or format,
+/// without an EPUB anchor yet, and those left `unmatched` (their cause, a
+/// missing book or EPUB, may have gone away). `rederive` also refreshes
+/// `exact`, `approximate` and `ambiguous`. A `native` or `manual` EPUB anchor
+/// is never touched.
 fn wants_derive(e: &Entry, rederive: bool) -> bool {
     if e.deleted {
         return false;
     }
-    match e
-        .calibre
-        .as_ref()
-        .and_then(|c| c.get("match"))
-        .and_then(Value::as_str)
-    {
-        None => e.calibre.is_none(),
-        Some("unmatched") => true,
-        Some("exact" | "approximate" | "ambiguous") => rederive,
-        Some(_) => false,
+    match e.calibre.get(WRITABLE_FORMAT) {
+        None => true,
+        Some(anchor) => match anchor.get("match").and_then(Value::as_str) {
+            Some("unmatched") => true,
+            Some("exact" | "approximate" | "ambiguous") => rederive,
+            _ => false,
+        },
     }
 }
 
@@ -229,7 +228,9 @@ pub fn derive_calibre(
                 None => m,
             };
             *counts.entry(key).or_default() += 1;
-            book.entries[i].calibre = Some(Value::Object(block));
+            book.entries[i]
+                .calibre
+                .insert(WRITABLE_FORMAT.into(), Value::Object(block));
         }
         reports.push(BookDerive {
             file_name: loaded.file_name.clone(),
@@ -411,7 +412,6 @@ fn anchored(
     let spine = &text.docs[hit.doc].spine;
     let mut m = Map::new();
     m.insert("match".into(), json!(matched));
-    m.insert("format".into(), json!(WRITABLE_FORMAT));
     m.insert("book_id".into(), json!(book_id));
     m.insert("spine_name".into(), json!(spine.name));
     m.insert("spine_index".into(), json!(spine.index));

@@ -4,7 +4,7 @@
 //! source (the Kindle replay). An incoming entry matches archive entries that
 //! share any ID or alias with it, and nothing else.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
 
@@ -27,8 +27,9 @@ pub struct Incoming {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SourceBlock {
     Kindle(KindleBlock),
-    /// calibre's annotation plus the tool's own keys; see `calibre::incoming`.
-    Calibre(Map<String, Value>),
+    /// calibre's annotations of this entry, by book format, each plus the
+    /// tool's own keys; see `calibre::incoming`.
+    Calibre(BTreeMap<String, Map<String, Value>>),
 }
 
 impl SourceBlock {
@@ -42,7 +43,11 @@ impl SourceBlock {
     fn store(&self, e: &mut Entry) {
         match self {
             SourceBlock::Kindle(k) => e.kindle = Some(k.clone()),
-            SourceBlock::Calibre(c) => crate::calibre::store_block(e, c.clone()),
+            SourceBlock::Calibre(anchors) => {
+                for (format, anchor) in anchors {
+                    crate::calibre::store_anchor(e, format, anchor.clone());
+                }
+            }
         }
     }
 }
@@ -174,7 +179,7 @@ fn create(incoming: &Incoming) -> Entry {
         deleted: false,
         sources: Vec::new(),
         kindle: None,
-        calibre: None,
+        calibre: BTreeMap::new(),
         other: Default::default(),
     };
     add_aliases(&mut e, &incoming.ids);
@@ -185,8 +190,9 @@ fn create(incoming: &Incoming) -> Entry {
 /// Last ingest wins per field, on purpose: the user reviews every change in
 /// the diff, so there is no conflict machinery.
 fn update(e: &mut Entry, incoming: &Incoming) {
-    if e.text != incoming.text && has_derived_match(e) {
-        e.calibre = None;
+    if e.text != incoming.text {
+        // Derived anchors describe the old text; native and manual ones stay.
+        e.calibre.retain(|_, anchor| !is_derived(anchor));
     }
     e.text = incoming.text.clone();
     e.note = incoming.note.clone();
@@ -199,10 +205,9 @@ fn update(e: &mut Entry, incoming: &Incoming) {
     incoming.block.store(e);
 }
 
-fn has_derived_match(e: &Entry) -> bool {
-    e.calibre
-        .as_ref()
-        .and_then(|c| c.get("match"))
+pub fn is_derived(anchor: &Value) -> bool {
+    anchor
+        .get("match")
         .and_then(Value::as_str)
         .is_some_and(|m| DERIVED_MATCHES.contains(&m))
 }

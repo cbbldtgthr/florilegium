@@ -2,6 +2,8 @@
 
 pub mod db;
 
+use std::collections::BTreeMap;
+
 use serde_json::{Map, Value};
 
 use crate::archive::{Entry, EntryType};
@@ -12,10 +14,8 @@ use db::AnnotationRow;
 /// Highlights on other formats are read and archived, never written back.
 pub const WRITABLE_FORMAT: &str = "EPUB";
 
-/// Keys the tool adds to the calibre block beside calibre's own annotation.
+/// Key the tool adds to an anchor beside calibre's own annotation fields.
 const MATCH: &str = "match";
-/// Derived-match bookkeeping kept when a read-back confirms our own CFIs.
-const DERIVED_KEYS: [&str; 4] = ["match", "reason", "candidates", "derived_with"];
 
 /// Why a viewer highlight row did not become an incoming entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,9 +24,10 @@ pub enum Skip {
     Unreadable(String),
 }
 
-/// A viewer highlight row as an incoming entry. The calibre block holds the
-/// annotation verbatim (so calibre's own text survives a Kindle overwrite and
-/// a push can rebuild it exactly), plus `format`, `book_id` and `match`.
+/// A viewer highlight row as an incoming entry with one anchor, under the
+/// row's format. The anchor holds the annotation verbatim (so calibre's own
+/// text survives a Kindle overwrite and a push can rebuild it exactly), plus
+/// `book_id` and `match`.
 pub fn incoming(row: &AnnotationRow) -> Result<Incoming, Skip> {
     let data = row
         .data
@@ -52,7 +53,6 @@ pub fn incoming(row: &AnnotationRow) -> Result<Incoming, Skip> {
         )));
     }
     let mut block = annotation.clone();
-    block.insert("format".into(), Value::String(row.format.clone()));
     block.insert("book_id".into(), Value::from(row.book));
     block.insert(MATCH.into(), Value::String("native".into()));
     Ok(Incoming {
@@ -61,28 +61,54 @@ pub fn incoming(row: &AnnotationRow) -> Result<Incoming, Skip> {
         text,
         note: text_of("notes").filter(|n| !n.is_empty()),
         created: text_of("timestamp"),
-        block: SourceBlock::Calibre(block),
+        block: SourceBlock::Calibre(BTreeMap::from([(row.format.clone(), block)])),
     })
 }
 
-/// Store a freshly read calibre block. If the archive already anchored this
-/// entry at the same place (`exact` or `manual`, same CFIs), it is our own
-/// highlight read back: keep that match and its bookkeeping rather than
-/// relabelling it `native`.
-pub fn store_block(e: &mut Entry, mut block: Map<String, Value>) {
-    if let Some(Value::Object(old)) = &e.calibre {
-        let old_match = old.get(MATCH).and_then(Value::as_str);
-        let same_place = ["start_cfi", "end_cfi", "spine_name"]
-            .iter()
-            .all(|k| old.get(*k) == block.get(*k));
-        if matches!(old_match, Some("exact" | "manual")) && same_place {
-            for k in DERIVED_KEYS {
-                match old.get(k) {
-                    Some(v) => block.insert(k.into(), v.clone()),
-                    None => block.remove(k),
-                };
+/// One incoming entry from all of a highlight's annotations: the same ID on
+/// several formats of a book (e.g. read on AZW3, pushed to EPUB) is one
+/// passage. Every format's anchor is kept; text, note and date come from the
+/// most recently changed annotation, the writable format winning a tie.
+pub fn combine(mut parts: Vec<Incoming>) -> Incoming {
+    let rank = |i: &Incoming| {
+        let writable = match &i.block {
+            SourceBlock::Calibre(a) => a.contains_key(WRITABLE_FORMAT),
+            SourceBlock::Kindle(_) => false,
+        };
+        (i.created.clone(), writable)
+    };
+    parts.sort_by_key(|i| std::cmp::Reverse(rank(i)));
+    let mut anchors = BTreeMap::new();
+    for p in &parts {
+        if let SourceBlock::Calibre(a) = &p.block {
+            for (format, anchor) in a {
+                anchors
+                    .entry(format.clone())
+                    .or_insert_with(|| anchor.clone());
             }
         }
     }
-    e.calibre = Some(Value::Object(block));
+    let mut best = parts.swap_remove(0);
+    best.block = SourceBlock::Calibre(anchors);
+    best
+}
+
+/// Store a freshly read anchor for `format`. If the archive already anchored
+/// the entry there at the same place (`exact` or `manual`, same CFIs), it is
+/// our own highlight read back: our anchor stays exactly as it was, so a push
+/// followed by a read changes nothing.
+pub fn store_anchor(e: &mut Entry, format: &str, block: Map<String, Value>) {
+    if let Some(Value::Object(old)) = e.calibre.get(format) {
+        let ours = matches!(
+            old.get(MATCH).and_then(Value::as_str),
+            Some("exact" | "manual")
+        );
+        let same_place = ["start_cfi", "end_cfi", "spine_name"]
+            .iter()
+            .all(|k| old.get(*k) == block.get(*k));
+        if ours && same_place {
+            return;
+        }
+    }
+    e.calibre.insert(format.to_string(), Value::Object(block));
 }

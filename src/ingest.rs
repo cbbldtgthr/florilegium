@@ -234,13 +234,16 @@ pub fn ingest_calibre(
     let mut removed = 0;
     let mut formats: BTreeMap<String, usize> = BTreeMap::new();
     let mut warnings = Vec::new();
-    let mut by_book: BTreeMap<i64, Vec<(String, Incoming)>> = BTreeMap::new();
+    // Book -> annotation ID -> (format, incoming) for every format it is on.
+    let mut by_book: BTreeMap<i64, BTreeMap<String, Vec<(String, Incoming)>>> = BTreeMap::new();
     for row in rows.iter().filter(|r| {
         r.user_type == VIEWER_USER_TYPE && r.user == VIEWER_USER && r.annot_type == "highlight"
     }) {
         match calibre::incoming(row) {
             Ok(i) => by_book
                 .entry(row.book)
+                .or_default()
+                .entry(i.ids[0].clone())
                 .or_default()
                 .push((row.format.clone(), i)),
             Err(Skip::Removed) => removed += 1,
@@ -299,9 +302,12 @@ pub fn ingest_calibre(
             ..BookReport::default()
         };
         let mut touched = BTreeSet::new();
-        for (format, incoming) in incomings {
-            *formats.entry(format.clone()).or_default() += 1;
-            report.apply(&mut loaded.data, incoming, &mut touched, &mut warnings);
+        for parts in incomings.values() {
+            for (format, _) in parts {
+                *formats.entry(format.clone()).or_default() += 1;
+            }
+            let incoming = calibre::combine(parts.iter().map(|(_, i)| i.clone()).collect());
+            report.apply(&mut loaded.data, &incoming, &mut touched, &mut warnings);
         }
         reports.push(report);
     }

@@ -4,7 +4,10 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use crate::archive::{Archive, Entry, EntryType};
+use serde_json::Value;
+
+use crate::archive::{Archive, EntryType};
+use crate::calibre::WRITABLE_FORMAT;
 use crate::id::key_v1;
 use crate::norm::norm_v1;
 
@@ -125,14 +128,29 @@ pub fn check(dir: &Path) -> Vec<Issue> {
                     "kindle block and kindle source disagree: each needs the other".into(),
                 );
             }
-            if let Some(calibre_text) = native_text(e)
-                && Some(norm_v1(calibre_text)) != e.text.as_deref().map(norm_v1)
-            {
-                issue(
-                    file,
-                    Some(id),
-                    "text differs from the calibre highlight it is anchored to (did a Kindle ingest overwrite it?)".into(),
-                );
+            for (format, anchor) in &e.calibre {
+                let m = anchor.get("match").and_then(Value::as_str);
+                if let (Some("native"), Some(calibre_text)) =
+                    (m, anchor.get("highlighted_text").and_then(Value::as_str))
+                    && Some(norm_v1(calibre_text)) != e.text.as_deref().map(norm_v1)
+                {
+                    issue(
+                        file,
+                        Some(id),
+                        format!(
+                            "text differs from the {format} highlight in calibre it is anchored to (did a Kindle ingest overwrite it?)"
+                        ),
+                    );
+                }
+                if crate::merge::is_derived(anchor) && format != WRITABLE_FORMAT {
+                    issue(
+                        file,
+                        Some(id),
+                        format!(
+                            "derived anchor on {format}; the tool only derives {WRITABLE_FORMAT} anchors"
+                        ),
+                    );
+                }
             }
         }
     }
@@ -206,13 +224,6 @@ fn files(holders: &[(&str, &str)]) -> String {
     let mut f: Vec<&str> = holders.iter().map(|(file, _)| *file).collect();
     f.dedup();
     f.join(", ")
-}
-
-/// calibre's own highlighted text, for an entry whose CFIs are calibre's.
-fn native_text(e: &Entry) -> Option<&str> {
-    let c = e.calibre.as_ref()?;
-    (c.get("match")?.as_str()? == "native").then_some(())?;
-    c.get("highlighted_text")?.as_str()
 }
 
 /// calibre's annotation ID shape, which minted IDs share.

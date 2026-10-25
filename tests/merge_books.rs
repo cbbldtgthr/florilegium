@@ -22,8 +22,14 @@ fn entry(id: &str, source: &str) -> Entry {
             page: None,
             raw_added_on: "Sunday, 4 January 2026 10:00:00".into(),
         }),
-        calibre: (source == "calibre")
-            .then(|| json!({"match": "native", "highlighted_text": format!("Text of {id}.")})),
+        calibre: if source == "calibre" {
+            BTreeMap::from([(
+                "EPUB".to_string(),
+                json!({"match": "native", "highlighted_text": format!("Text of {id}.")}),
+            )])
+        } else {
+            BTreeMap::new()
+        },
         other: BTreeMap::new(),
     }
 }

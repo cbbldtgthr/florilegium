@@ -1,10 +1,11 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
 use annot_archive::archive::{Archive, Entry};
 use annot_archive::config::Config;
 use annot_archive::ingest::{IngestReport, ingest_clippings};
-use serde_json::json;
+use serde_json::{Value, json};
 
 const BOOK: &str = "The Orchard Ledger (Penn, Mara)";
 
@@ -296,15 +297,25 @@ fn a_wide_highlight_merges_archive_entries() {
     assert_eq!(merges, vec![&(first, vec![second])]);
 }
 
+fn anchors(pairs: &[(&str, Value)]) -> BTreeMap<String, Value> {
+    pairs
+        .iter()
+        .map(|(f, v)| (f.to_string(), v.clone()))
+        .collect()
+}
+
 #[test]
-fn text_changes_drop_derived_calibre_data_only() {
+fn text_changes_drop_derived_calibre_anchors_only() {
     let dir = tempfile::tempdir().unwrap();
     ingest(&base(), dir.path());
     edit_entry(dir.path(), "The orchard keeps", |e| {
-        e.calibre = Some(json!({"match": "exact", "start_cfi": "/2/4"}))
+        e.calibre = anchors(&[("EPUB", json!({"match": "exact", "start_cfi": "/2/4"}))])
     });
     edit_entry(dir.path(), "Pruning is", |e| {
-        e.calibre = Some(json!({"match": "native", "start_cfi": "/2/6"}))
+        e.calibre = anchors(&[
+            ("AZW3", json!({"match": "native", "start_cfi": "/2/6"})),
+            ("EPUB", json!({"match": "approximate", "start_cfi": "/2/8"})),
+        ])
     });
 
     let edited = base()
@@ -320,24 +331,25 @@ fn text_changes_drop_derived_calibre_data_only() {
         );
     ingest(&edited, dir.path());
     let e = entries(dir.path(), "The Orchard");
-    assert_eq!(find(&e, "The orchard keeps").calibre, None);
+    assert!(find(&e, "The orchard keeps").calibre.is_empty());
     assert_eq!(
         find(&e, "Pruning is").calibre,
-        Some(json!({"match": "native", "start_cfi": "/2/6"}))
+        anchors(&[("AZW3", json!({"match": "native", "start_cfi": "/2/6"}))]),
+        "the native anchor stays, the derived one goes"
     );
 }
 
 #[test]
-fn unchanged_text_keeps_derived_calibre_data() {
+fn unchanged_text_keeps_derived_calibre_anchors() {
     let dir = tempfile::tempdir().unwrap();
     ingest(&base(), dir.path());
     edit_entry(dir.path(), "The orchard keeps", |e| {
-        e.calibre = Some(json!({"match": "exact"}))
+        e.calibre = anchors(&[("EPUB", json!({"match": "exact"}))])
     });
     ingest(&base(), dir.path());
     assert_eq!(
         find(&entries(dir.path(), "The Orchard"), "The orchard keeps").calibre,
-        Some(json!({"match": "exact"}))
+        anchors(&[("EPUB", json!({"match": "exact"}))])
     );
 }
 

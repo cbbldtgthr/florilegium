@@ -7,7 +7,7 @@ use annot_archive::archive::{Archive, Book, Entry};
 use annot_archive::check::check;
 use annot_archive::config::Config;
 use annot_archive::derive::{BookOutcome, DeriveConfig, derive_calibre};
-use annot_archive::ingest::ingest_clippings;
+use annot_archive::ingest::{ingest_calibre, ingest_clippings};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
@@ -235,8 +235,8 @@ fn block<'a>(entries: &'a [Entry], text_start: &str) -> &'a Value {
         })
         .unwrap_or_else(|| panic!("no entry {text_start:?}"));
     e.calibre
-        .as_ref()
-        .unwrap_or_else(|| panic!("{text_start:?} has no calibre block"))
+        .get("EPUB")
+        .unwrap_or_else(|| panic!("{text_start:?} has no EPUB anchor"))
 }
 
 fn snapshot(dir: &Path) -> Vec<(String, Vec<u8>)> {
@@ -270,10 +270,8 @@ fn a_matched_book_is_linked_and_its_highlights_anchored() {
         (b["spine_name"].as_str(), b["spine_index"].as_u64()),
         (Some("OEBPS/ch0.xhtml"), Some(0))
     );
-    assert_eq!(
-        (b["format"].as_str(), b["book_id"].as_i64()),
-        (Some("EPUB"), Some(7))
-    );
+    assert_eq!(b["book_id"].as_i64(), Some(7));
+    assert!(b.get("format").is_none(), "the format is the anchor's key");
     assert!(
         b.get("highlighted_text").is_none(),
         "the entry's own text is not repeated"
@@ -349,7 +347,7 @@ fn a_book_with_its_own_calibre_file_is_left_for_merge_books() {
     ));
     let (uuid, e) = entries(arch.path(), "Second Copy");
     assert_eq!(uuid, None, "never two files claiming one calibre book");
-    assert!(e[0].calibre.is_none());
+    assert!(e[0].calibre.is_empty());
     assert_eq!(check(arch.path()), vec![]);
 }
 
@@ -383,8 +381,10 @@ fn runs_are_deterministic_and_native_or_manual_blocks_are_never_touched() {
         .flat_map(|b| b.data.entries.iter_mut())
         .find(|e| e.text.as_deref() == Some("Frost settles first in the low corners."))
         .unwrap();
-    e.calibre =
-        Some(json!({"match": "manual", "start_cfi": "/2/4/4/1:0", "end_cfi": "/2/4/4/1:5"}));
+    e.calibre.insert(
+        "EPUB".into(),
+        json!({"match": "manual", "start_cfi": "/2/4/4/1:0", "end_cfi": "/2/4/4/1:5"}),
+    );
     a.save(false).unwrap();
     let pinned = snapshot(arch.path());
     derive(lib.path(), arch.path(), true);
@@ -447,4 +447,39 @@ fn dry_run_writes_nothing() {
     .unwrap();
     assert!(!r.saved.updated.is_empty());
     assert_eq!(snapshot(arch.path()), before);
+}
+
+#[test]
+fn a_highlight_read_from_another_format_gains_an_epub_anchor() {
+    // Highlighted in calibre's viewer on the AZW3 copy; the book also has an
+    // EPUB. The archive is format-independent, so deriving gives the
+    // highlight an EPUB anchor beside its native AZW3 one.
+    let lib = library();
+    let db = Connection::open(lib.path().join("metadata.db")).unwrap();
+    db.execute(
+        "INSERT INTO annotations (book, format, user_type, user, timestamp, annot_id, annot_type, annot_data, searchable_text)
+         VALUES (7, 'AZW3', 'local', 'viewer', 0, 'Azw3Highlight000000001', 'highlight', ?1, '')",
+        [json!({
+            "type": "highlight", "uuid": "Azw3Highlight000000001", "timestamp": "2021-01-10T05:24:09.391Z",
+            "start_cfi": "/2/4/2/8/1:0", "end_cfi": "/2/4/2/8/1:38", "spine_name": "part0003.html", "spine_index": 3,
+            "highlighted_text": "Bees read the light, not the calendar.",
+            "style": {"kind": "color", "type": "builtin", "which": "yellow"},
+        })
+        .to_string()],
+    )
+    .unwrap();
+    let arch = tempfile::tempdir().unwrap();
+    ingest_calibre(lib.path(), arch.path(), &[], false).unwrap();
+    derive(lib.path(), arch.path(), false);
+
+    let (uuid, e) = entries(arch.path(), "The Orchard Ledger");
+    assert_eq!(uuid.as_deref(), Some(ORCHARD));
+    assert_eq!(
+        e[0].calibre.keys().collect::<Vec<_>>(),
+        vec!["AZW3", "EPUB"]
+    );
+    assert_eq!(e[0].calibre["AZW3"]["match"], "native");
+    assert_eq!(e[0].calibre["EPUB"]["match"], "exact");
+    assert_eq!(e[0].calibre["EPUB"]["spine_name"], "OEBPS/ch1.xhtml");
+    assert_eq!(check(arch.path()), vec![]);
 }
