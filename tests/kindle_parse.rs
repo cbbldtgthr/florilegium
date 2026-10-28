@@ -1,5 +1,5 @@
-use annot_archive::id::{EntryKind, Position};
-use annot_archive::kindle::parse::{ParseConfig, Parsed, RawClipping, parse};
+use florilegium::id::{EntryKind, Position};
+use florilegium::kindle::parse::{ParseConfig, Parsed, RawClipping, parse};
 
 const FIXTURE: &str = include_str!("fixtures/kindle/synthetic.txt");
 

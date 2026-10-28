@@ -4,23 +4,23 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
-use annot_archive::calibre::db::Library;
-use annot_archive::check::check;
-use annot_archive::config::Config;
-use annot_archive::derive::books::How;
-use annot_archive::derive::{BookOutcome, DeriveReport, derive_calibre};
-use annot_archive::id::{EntryKind, key_v1};
-use annot_archive::ingest::{
+use florilegium::calibre::db::Library;
+use florilegium::check::check;
+use florilegium::config::Config;
+use florilegium::derive::books::How;
+use florilegium::derive::{BookOutcome, DeriveReport, derive_calibre};
+use florilegium::id::{EntryKind, key_v1};
+use florilegium::ingest::{
     BookReport, CalibreIngestReport, IngestReport, ingest_calibre, ingest_clippings,
 };
-use annot_archive::kindle::parse::{ParseConfig, RawClipping, parse};
-use annot_archive::kindle::replay::{ReplayConfig, replay};
-use annot_archive::list::list;
-use annot_archive::merge_books::merge_books;
-use annot_archive::push::{
+use florilegium::kindle::parse::{ParseConfig, RawClipping, parse};
+use florilegium::kindle::replay::{ReplayConfig, replay};
+use florilegium::list::list;
+use florilegium::merge_books::merge_books;
+use florilegium::push::{
     PushOptions, PushReport, calibre_debug, push, running_calibre_processes,
 };
-use annot_archive::resolve::{Clipping, Lookup, Resolved, Resolver};
+use florilegium::resolve::{Clipping, Lookup, Resolved, Resolver};
 
 #[derive(Parser)]
 #[command(version, about = "A permanent, citable archive of reading highlights")]
@@ -34,7 +34,7 @@ enum Command {
     /// Parse a My Clippings.txt and summarise what it holds, without writing anything
     InspectClippings {
         /// Path to My Clippings.txt
-        #[arg(env = "ANNOT_CLIPPINGS")]
+        #[arg(env = "FLOR_CLIPPINGS")]
         clippings: PathBuf,
         /// List the entries of books whose title line contains this text
         #[arg(long)]
@@ -43,10 +43,10 @@ enum Command {
     /// Replay a My Clippings.txt and merge it into the archive by identity
     IngestClippings {
         /// Path to My Clippings.txt
-        #[arg(env = "ANNOT_CLIPPINGS")]
+        #[arg(env = "FLOR_CLIPPINGS")]
         clippings: PathBuf,
         /// Archive directory: a folder of its own, in a private repository
-        #[arg(long, env = "ANNOT_ARCHIVE")]
+        #[arg(long, env = "FLOR_ARCHIVE")]
         archive: PathBuf,
         /// Settings file; defaults to config.toml in the archive, if present
         #[arg(long)]
@@ -58,7 +58,7 @@ enum Command {
     /// Dump a calibre book's raw annotation rows as JSON, without writing anything
     InspectCalibre {
         /// calibre library root (the folder holding metadata.db)
-        #[arg(long, env = "ANNOT_CALIBRE_LIBRARY")]
+        #[arg(long, env = "FLOR_CALIBRE_LIBRARY")]
         library: PathBuf,
         /// calibre's numeric book ID
         #[arg(long)]
@@ -67,10 +67,10 @@ enum Command {
     /// Read calibre's viewer highlights (EPUB) into the archive by identity
     IngestCalibre {
         /// Archive directory: a folder of its own, in a private repository
-        #[arg(long, env = "ANNOT_ARCHIVE")]
+        #[arg(long, env = "FLOR_ARCHIVE")]
         archive: PathBuf,
         /// calibre library root; defaults to [calibre] library in config.toml
-        #[arg(long, env = "ANNOT_CALIBRE_LIBRARY")]
+        #[arg(long, env = "FLOR_CALIBRE_LIBRARY")]
         library: Option<PathBuf>,
         /// Settings file; defaults to config.toml in the archive, if present
         #[arg(long)]
@@ -86,10 +86,10 @@ enum Command {
     /// it in the archive (derived data only; never touches native entries)
     DeriveCalibre {
         /// Archive directory
-        #[arg(long, env = "ANNOT_ARCHIVE")]
+        #[arg(long, env = "FLOR_ARCHIVE")]
         archive: PathBuf,
         /// calibre library root; defaults to [calibre] library in config.toml
-        #[arg(long, env = "ANNOT_CALIBRE_LIBRARY")]
+        #[arg(long, env = "FLOR_CALIBRE_LIBRARY")]
         library: Option<PathBuf>,
         /// Settings file; defaults to config.toml in the archive, if present
         #[arg(long)]
@@ -108,10 +108,10 @@ enum Command {
     /// metadata.db first; calibre and its viewer must be closed)
     PushCalibre {
         /// Archive directory
-        #[arg(long, env = "ANNOT_ARCHIVE")]
+        #[arg(long, env = "FLOR_ARCHIVE")]
         archive: PathBuf,
         /// calibre library root; defaults to [calibre] library in config.toml
-        #[arg(long, env = "ANNOT_CALIBRE_LIBRARY")]
+        #[arg(long, env = "FLOR_CALIBRE_LIBRARY")]
         library: Option<PathBuf>,
         /// Settings file; defaults to config.toml in the archive, if present
         #[arg(long)]
@@ -134,7 +134,7 @@ enum Command {
         /// Book file whose entries and keys move into KEEP
         absorb: String,
         /// Archive directory
-        #[arg(long, env = "ANNOT_ARCHIVE")]
+        #[arg(long, env = "FLOR_ARCHIVE")]
         archive: PathBuf,
         /// Report what would change without writing anything
         #[arg(long)]
@@ -144,13 +144,13 @@ enum Command {
     /// text, note), for searching; `just find` picks one with fzf
     List {
         /// Archive directory
-        #[arg(long, env = "ANNOT_ARCHIVE")]
+        #[arg(long, env = "FLOR_ARCHIVE")]
         archive: PathBuf,
     },
     /// Validate the archive; exits 1 if anything is wrong
     Check {
         /// Archive directory
-        #[arg(long, env = "ANNOT_ARCHIVE")]
+        #[arg(long, env = "FLOR_ARCHIVE")]
         archive: PathBuf,
     },
     /// Look up an entry by ID or alias. Exits 0 if found, 2 if it was deleted,
@@ -160,7 +160,7 @@ enum Command {
         #[arg(required = true)]
         ids: Vec<String>,
         /// Archive directory
-        #[arg(long, env = "ANNOT_ARCHIVE")]
+        #[arg(long, env = "FLOR_ARCHIVE")]
         archive: PathBuf,
         /// One JSON object per ID, per line, in the stable clipping shape
         /// other tools integrate against
@@ -177,7 +177,7 @@ enum Command {
 }
 
 fn main() -> ExitCode {
-    match Cli::parse_from(annot_archive::resolve::ids_after_double_dash(
+    match Cli::parse_from(florilegium::resolve::ids_after_double_dash(
         std::env::args().collect(),
     ))
     .command
@@ -332,13 +332,13 @@ fn print_calibre_ingest(r: &CalibreIngestReport, dry_run: bool) {
     let not_writable: usize = r
         .formats
         .iter()
-        .filter(|(f, _)| *f != annot_archive::calibre::WRITABLE_FORMAT)
+        .filter(|(f, _)| *f != florilegium::calibre::WRITABLE_FORMAT)
         .map(|(_, n)| n)
         .sum();
     if not_writable > 0 {
         println!(
             "  {not_writable} are on formats other than {0}; derive-calibre places them in the book's {0} too.",
-            annot_archive::calibre::WRITABLE_FORMAT
+            florilegium::calibre::WRITABLE_FORMAT
         );
     }
     if !r.warnings.is_empty() {
@@ -714,7 +714,7 @@ fn print_resolved(r: &Resolved) {
         place.unwrap_or_default(),
         e.created.as_deref().unwrap_or("no date")
     );
-    let chapter = annot_archive::list::chapter(e);
+    let chapter = florilegium::list::chapter(e);
     if !chapter.is_empty() {
         println!("Chapter: {chapter}");
     }
@@ -938,7 +938,7 @@ fn describe(c: &RawClipping) -> String {
 
 fn print_book_reports(
     books: &[BookReport],
-    saved: &annot_archive::archive::SaveReport,
+    saved: &florilegium::archive::SaveReport,
     dry_run: bool,
 ) {
     let sum = |f: fn(&BookReport) -> usize| books.iter().map(f).sum::<usize>();

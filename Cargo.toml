@@ -1,7 +1,11 @@
 [package]
-name = "annot-archive"
+name = "florilegium"
 version = "0.1.0"
 edition = "2024"
+
+[[bin]]
+name = "flor"
+path = "src/main.rs"
 
 [dependencies]
 base64 = "0.23.1"

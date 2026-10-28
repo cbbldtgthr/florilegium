@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use annot_archive::archive::{Archive, Book, Entry, EntryType, KindleBlock};
-use annot_archive::check::check;
-use annot_archive::merge_books::merge_books;
+use florilegium::archive::{Archive, Book, Entry, EntryType, KindleBlock};
+use florilegium::check::check;
+use florilegium::merge_books::merge_books;
 use serde_json::json;
 
 fn entry(id: &str, source: &str) -> Entry {

@@ -1,7 +1,7 @@
-use annot_archive::archive::Archive;
-use annot_archive::config::Config;
-use annot_archive::ingest::ingest_clippings;
-use annot_archive::list::list;
+use florilegium::archive::Archive;
+use florilegium::config::Config;
+use florilegium::ingest::ingest_clippings;
+use florilegium::list::list;
 use serde_json::json;
 
 fn clip(book: &str, kind: &str, loc: &str, minute: u32, text: &str) -> String {

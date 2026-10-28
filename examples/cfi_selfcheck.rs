@@ -8,11 +8,11 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
-use annot_archive::calibre::db::Library;
-use annot_archive::cfi::{Haystack, encode};
-use annot_archive::epub::Epub;
-use annot_archive::norm::norm_v1;
-use annot_archive::xhtml::Dom;
+use florilegium::calibre::db::Library;
+use florilegium::cfi::{Haystack, encode};
+use florilegium::epub::Epub;
+use florilegium::norm::norm_v1;
+use florilegium::xhtml::Dom;
 use serde_json::Value;
 
 /// An opened EPUB and its spine as (index, name).

@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use annot_archive::archive::{Archive, Book, Entry, EntryType};
-use annot_archive::ingest::ingest_calibre;
-use annot_archive::push::{PushOptions, calibre_debug, plan, push};
+use florilegium::archive::{Archive, Book, Entry, EntryType};
+use florilegium::ingest::ingest_calibre;
+use florilegium::push::{PushOptions, calibre_debug, plan, push};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
@@ -60,7 +60,7 @@ fn entry(id: &str, text: &str, anchor: Option<Value>) -> Entry {
 
 fn derived(m: &str, start: &str) -> Value {
     json!({
-        "match": m, "derived_with": "annot-archive 0.1.0", "book_id": 7,
+        "match": m, "derived_with": "florilegium 0.1.0", "book_id": 7,
         "spine_name": "OEBPS/ch0.xhtml", "spine_index": 0, "start_cfi": start, "end_cfi": "/2/4/2/1:30",
         "style": {"kind": "color", "type": "builtin", "which": "yellow"},
     })

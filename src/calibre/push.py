@@ -1,4 +1,4 @@
-# Run by `annot-archive push-calibre` inside calibre's own interpreter:
+# Run by `flor push-calibre` inside calibre's own interpreter:
 #     calibre-debug -e push.py -- plan.json
 #
 # Writes each planned book's complete list of viewer annotations for one
@@ -6,7 +6,7 @@
 # save_annotations_for_book: the same function the viewer uses when the
 # calibre GUI is not running. calibre's code therefore keeps its write
 # invariants (annotations_dirtied, full-text index) for the installed version.
-# The plan is built and checked by annot-archive; this script only applies it.
+# The plan is built and checked by florilegium; this script only applies it.
 
 import json
 import sys

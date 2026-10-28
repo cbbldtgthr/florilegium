@@ -4,10 +4,10 @@
 
 use std::io::Write;
 
-use annot_archive::cfi::{Haystack, encode};
-use annot_archive::epub::Epub;
-use annot_archive::norm::norm_v1;
-use annot_archive::xhtml::Dom;
+use florilegium::cfi::{Haystack, encode};
+use florilegium::epub::Epub;
+use florilegium::norm::norm_v1;
+use florilegium::xhtml::Dom;
 
 const HEAD: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">

@@ -1,10 +1,10 @@
 use std::fs;
 use std::path::Path;
 
-use annot_archive::archive::Archive;
-use annot_archive::check::check;
-use annot_archive::config::Config;
-use annot_archive::ingest::{ingest_calibre, ingest_clippings};
+use florilegium::archive::Archive;
+use florilegium::check::check;
+use florilegium::config::Config;
+use florilegium::ingest::{ingest_calibre, ingest_clippings};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
@@ -218,7 +218,7 @@ fn pushed_kindle_entry(calibre_cfis_match: bool) -> (tempfile::TempDir, String) 
     e.calibre.insert(
         "EPUB".into(),
         json!({
-            "match": "exact", "derived_with": "annot-archive 0.1.0",
+            "match": "exact", "derived_with": "florilegium 0.1.0",
             "start_cfi": "/2/4/2/12/1:0", "end_cfi": "/2/4/2/12/1:40", "spine_name": "text/ch1.xhtml",
             "spine_index": 2, "book_id": 7, "style": {"kind": "color", "type": "builtin", "which": "yellow"},
         }),
@@ -253,7 +253,7 @@ fn a_pushed_kindle_highlight_read_back_is_the_same_entry() {
         c["match"], "exact",
         "same CFIs: our own anchor, not relabelled native"
     );
-    assert_eq!(c["derived_with"], "annot-archive 0.1.0");
+    assert_eq!(c["derived_with"], "florilegium 0.1.0");
     assert!(
         c.get("highlighted_text").is_none() && c.get("uuid").is_none(),
         "our anchor is kept as it was, so a push and a read change nothing"

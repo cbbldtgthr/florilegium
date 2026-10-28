@@ -1,6 +1,6 @@
-use annot_archive::id::EntryKind;
-use annot_archive::kindle::parse::{ParseConfig, RawClipping, parse};
-use annot_archive::kindle::replay::{Book, Cluster, ReplayConfig, overlaps, replay, would_be_id};
+use florilegium::id::EntryKind;
+use florilegium::kindle::parse::{ParseConfig, RawClipping, parse};
+use florilegium::kindle::replay::{Book, Cluster, ReplayConfig, overlaps, replay, would_be_id};
 
 const FIXTURE: &str = include_str!("fixtures/kindle/replay.txt");
 

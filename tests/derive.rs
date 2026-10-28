@@ -3,11 +3,11 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 
-use annot_archive::archive::{Archive, Book, Entry};
-use annot_archive::check::check;
-use annot_archive::config::Config;
-use annot_archive::derive::{BookOutcome, DeriveConfig, derive_calibre};
-use annot_archive::ingest::{ingest_calibre, ingest_clippings};
+use florilegium::archive::{Archive, Book, Entry};
+use florilegium::check::check;
+use florilegium::config::Config;
+use florilegium::derive::{BookOutcome, DeriveConfig, derive_calibre};
+use florilegium::ingest::{ingest_calibre, ingest_clippings};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
@@ -219,7 +219,7 @@ fn archive() -> tempfile::TempDir {
     dir
 }
 
-fn derive(lib: &Path, archive: &Path, rederive: bool) -> annot_archive::derive::DeriveReport {
+fn derive(lib: &Path, archive: &Path, rederive: bool) -> florilegium::derive::DeriveReport {
     derive_calibre(lib, archive, &DeriveConfig::default(), rederive, &[], false).unwrap()
 }
 
@@ -300,7 +300,7 @@ fn a_matched_book_is_linked_and_its_highlights_anchored() {
         b["derived_with"]
             .as_str()
             .unwrap()
-            .starts_with("annot-archive ")
+            .starts_with("florilegium ")
     );
     assert_eq!(check(arch.path()), vec![]);
 }

@@ -1,11 +1,11 @@
 use std::fs;
 use std::path::Path;
 
-use annot_archive::archive::{Archive, Entry};
-use annot_archive::check::{Issue, check};
-use annot_archive::config::Config;
-use annot_archive::ingest::ingest_clippings;
-use annot_archive::resolve::{Lookup, resolve};
+use florilegium::archive::{Archive, Entry};
+use florilegium::check::{Issue, check};
+use florilegium::config::Config;
+use florilegium::ingest::ingest_clippings;
+use florilegium::resolve::{Lookup, resolve};
 
 const BOOK: &str = "The Orchard Ledger (Penn, Mara)";
 
@@ -243,7 +243,7 @@ fn resolve_refuses_to_guess_between_claimants() {
     );
 }
 
-use annot_archive::resolve::{CLIPPING_VERSION, Clipping, Resolver};
+use florilegium::resolve::{CLIPPING_VERSION, Clipping, Resolver};
 
 fn clipping(dir: &Path, id: &str, show_deleted: bool) -> serde_json::Value {
     let r = Resolver::new(dir).unwrap();
@@ -321,10 +321,10 @@ fn the_command_resolves_many_ids_one_json_line_each() {
     let (ledger, _) = ids(dir.path(), "The orchard keeps");
     let (mulch, _) = ids(dir.path(), "Mulch");
     let run = |args: &[&str]| {
-        std::process::Command::new(env!("CARGO_BIN_EXE_annot-archive"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_flor"))
             .arg("resolve")
             .args(args)
-            .env("ANNOT_ARCHIVE", dir.path())
+            .env("FLOR_ARCHIVE", dir.path())
             .output()
             .unwrap()
     };

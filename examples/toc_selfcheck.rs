@@ -8,8 +8,8 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
-use annot_archive::calibre::db::Library;
-use annot_archive::derive::locate::{BookText, Located};
+use florilegium::calibre::db::Library;
+use florilegium::derive::locate::{BookText, Located};
 use serde_json::Value;
 
 fn main() {

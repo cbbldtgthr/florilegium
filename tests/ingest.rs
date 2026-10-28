@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use annot_archive::archive::{Archive, Entry};
-use annot_archive::config::Config;
-use annot_archive::ingest::{IngestReport, ingest_clippings};
+use florilegium::archive::{Archive, Entry};
+use florilegium::config::Config;
+use florilegium::ingest::{IngestReport, ingest_clippings};
 use serde_json::{Value, json};
 
 const BOOK: &str = "The Orchard Ledger (Penn, Mara)";

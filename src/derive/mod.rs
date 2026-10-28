@@ -43,7 +43,7 @@ impl Default for DeriveConfig {
 const MAX_CANDIDATES: usize = 10;
 
 pub fn derived_with() -> String {
-    format!("annot-archive {}", env!("CARGO_PKG_VERSION"))
+    format!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
 }
 
 #[derive(Debug, Clone, PartialEq)]

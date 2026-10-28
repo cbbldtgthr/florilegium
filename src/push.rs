@@ -359,14 +359,14 @@ pub fn push(
 /// A timestamped copy of `metadata.db` beside it, made before any write.
 fn backup(library: &Path) -> Result<PathBuf, String> {
     let stamp = Timestamp::now().strftime("%Y%m%dT%H%M%SZ").to_string();
-    let to = library.join(format!("metadata.db.annot-archive-{stamp}.bak"));
+    let to = library.join(format!("metadata.db.florilegium-{stamp}.bak"));
     std::fs::copy(library.join("metadata.db"), &to)
         .map_err(|e| format!("cannot back up metadata.db to {}: {e}", to.display()))?;
     Ok(to)
 }
 
 fn tempfile_dir() -> Result<PathBuf, String> {
-    let dir = std::env::temp_dir().join(format!("annot-archive-push-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("florilegium-push-{}", std::process::id()));
     std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     Ok(dir)
 }

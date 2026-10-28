@@ -5,7 +5,7 @@ set dotenv-load := true
 default:
     @just --list
 
-# Compile the annot-archive binary in debug mode
+# Compile the flor binary in debug mode
 build:
     cargo build --workspace --all-targets
 
@@ -29,17 +29,17 @@ fmt:
 fmt-check:
     cargo fmt --all -- --check
 
-# Summarise My Clippings.txt ($ANNOT_CLIPPINGS) without writing anything; add `--book TEXT` to list one book
+# Summarise My Clippings.txt ($FLOR_CLIPPINGS) without writing anything; add `--book TEXT` to list one book
 [positional-arguments]
 inspect-clippings *args:
     cargo run --quiet -- inspect-clippings "$@"
 
-# Replay My Clippings.txt ($ANNOT_CLIPPINGS) into the archive ($ANNOT_ARCHIVE); add `--dry-run` to only report
+# Replay My Clippings.txt ($FLOR_CLIPPINGS) into the archive ($FLOR_ARCHIVE); add `--dry-run` to only report
 [positional-arguments]
 ingest-clippings *args:
     cargo run --quiet -- ingest-clippings "$@"
 
-# Dump one calibre book's raw annotation rows as JSON, read-only (library: $ANNOT_CALIBRE_LIBRARY)
+# Dump one calibre book's raw annotation rows as JSON, read-only (library: $FLOR_CALIBRE_LIBRARY)
 inspect-calibre book:
     cargo run --quiet -- inspect-calibre --book "{{book}}"
 
@@ -82,13 +82,13 @@ resolve id *args:
     cargo run --quiet -- resolve "$@"
 
 # Dev-only: regenerate a real library's EPUB highlight CFIs from their text and compare with calibre's
-cfi-selfcheck library=env("ANNOT_CALIBRE_LIBRARY", ""):
+cfi-selfcheck library=env("FLOR_CALIBRE_LIBRARY", ""):
     cargo run --quiet --release --example cfi_selfcheck -- "{{library}}"
 
 # Dev-only: compute chapter titles of a real library's EPUB highlights and compare with calibre's
-toc-selfcheck library=env("ANNOT_CALIBRE_LIBRARY", ""):
+toc-selfcheck library=env("FLOR_CALIBRE_LIBRARY", ""):
     cargo run --quiet --release --example toc_selfcheck -- "{{library}}"
 
-# Run annot-archive with the given arguments, e.g. `just run --help`
+# Run flor with the given arguments, e.g. `just run --help`
 run *args:
     cargo run --quiet -- {{args}}

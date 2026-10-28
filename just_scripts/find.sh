@@ -4,14 +4,14 @@
 #
 #     just_scripts/find.sh [QUERY...]
 #
-# The archive is $ANNOT_ARCHIVE (just loads it from .env).
+# The archive is $FLOR_ARCHIVE (just loads it from .env).
 # Matching runs on book, chapter, text and note; the preview shows the whole
 # entry as `resolve` prints it.
 set -eu
 
-archive="${ANNOT_ARCHIVE:?set ANNOT_ARCHIVE in .env (see .env.example)}"
-cargo build --quiet --release --bin annot-archive
-bin="$(pwd)/target/release/annot-archive"
+archive="${FLOR_ARCHIVE:?set FLOR_ARCHIVE in .env (see .env.example)}"
+cargo build --quiet --release --bin flor
+bin="$(pwd)/target/release/flor"
 
 id="$("$bin" list --archive "$archive" | fzf \
     --delimiter "$(printf '\t')" \

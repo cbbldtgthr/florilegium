@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use annot_archive::archive::{
+use florilegium::archive::{
     Archive, Book, BookFile, Entry, EntryType, KindleBlock, OVERRIDES_FILE,
 };
 use serde_json::json;
