@@ -3,7 +3,11 @@ name = "florilegium"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
+description = "A permanent, plain-text archive of your Kindle and calibre highlights, with a stable ID for every one you can cite"
 repository = "https://github.com/cbbldtgthr/florilegium"
+keywords = ["kindle", "calibre", "highlights", "annotations", "epub"]
+categories = ["command-line-utilities"]
+include = ["/src", "/tests", "/examples", "/LICENSE", "/README.md", "/Cargo.toml", "/Cargo.lock"]
 
 [[bin]]
 name = "flor"
