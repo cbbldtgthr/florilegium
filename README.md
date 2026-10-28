@@ -196,3 +196,10 @@ calibre install. The tool is written in Rust; the one piece of Python is the
 short script that writes annotations through calibre's own code, run by
 calibre's bundled interpreter. Planned work lives in [BACKLOG.md](BACKLOG.md),
 and the reasons behind past decisions in the commit history.
+
+## Licence
+
+GPL-3.0-or-later; see [LICENSE](LICENSE). The CFI generator and the
+table-of-contents reader follow calibre's own code closely so that their
+output matches calibre's exactly, and calibre is GPLv3, so this project uses
+the same licence.
